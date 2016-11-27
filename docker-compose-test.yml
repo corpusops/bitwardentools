@@ -121,10 +121,17 @@ services:
     - -ec
     - |-
       /cops_helpers/dockerize -wait http://setup -timeout 60s
-      /cops_helpers/dockerize -wait file:///bitwarden/rsa_key.der -timeout 60s
+      ( while true; do if ( test -e /bitwarden/rsa_key.der || test -e /bitwarden/rsa_key.pem );then touch .tox/pem;break;fi;done )&
+      /cops_helpers/dockerize -wait file://$$(pwd)/.tox/pem -timeout 60s
       rsync -a  /bitwarden/ /test/
-      chmod -Rf +r /test && chown -Rf app /test
-      export BITWARDEN_PRIVATE_KEY=$$(base64 /test/rsa_key.der|tr -d '\n')
+      chmod -Rf +r /test && chown -Rf app /test /w/.tox
+      if   test -e /bitwarden/rsa_key.der;then
+        export BITWARDEN_PRIVATE_KEY=$$(base64 /test/rsa_key.der|tr -d '\n')
+      elif test -e /bitwarden/rsa_key.pem;then
+        export BITWARDEN_PRIVATE_KEY=$$(base64 /test/rsa_key.pem|tr -d '\n')
+      else
+        exit 130
+      fi
       exec docker-entrypoint.sh
     volumes:
     - "bitwarden:/bitwarden"

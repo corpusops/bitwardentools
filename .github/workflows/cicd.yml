@@ -72,10 +72,11 @@ jobs:
         #   'printf "drop schema public cascade;create schema public;"|psql -U $POSTGRES_USER $POSTGRES_DB'
         # docker-compose up -d --force-recreate --no-deps $services
         for i in $http_services;do http_wait $i;done
+        ( while true; do docker ps -a;docker-compose logs db bitwarden app;sleep 15;done )&
         $bash -exc '\
-        ( while !(touch .tox/ready);do echo "app not ready">&2;sleep 0.5;done \
-        && touch appready )&\
-        /cops_helpers/dockerize -wait file://$(pwd)/appready -timeout 60s;'
+        ( while !(touch .tox/ready);do echo "app not ready ($(pwd))">&2;sleep 0.5;done \
+        && touch .tox/appready )&\
+        /cops_helpers/dockerize -wait file://$(pwd)/.tox/appready -timeout 180s;'
         $bash -exc 'tox -e linting,coverage'
     - name: Setup python
       if: ${{ steps.v.outputs.releasable == 'true' && env.TWINE_PASSWORD != '' }}
