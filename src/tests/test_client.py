@@ -185,11 +185,13 @@ class TestBitwardenInteg(unittest.TestCase):
     def setUpClass(self):
         if getattr(self, "_setup_done", None):
             return
-        tpkey = "/test/rsa_key.der"
-        private_key = bwclient.PRIVATE_KEY
-        if os.path.exists(tpkey):
-            with open(tpkey, "rb") as fic:
-                private_key = fic.read()
+        for ext in ["der", "pem"]:
+            tpkey = f"/test/rsa_key.{ext}"
+            private_key = bwclient.PRIVATE_KEY
+            if os.path.exists(tpkey):
+                with open(tpkey, "rb") as fic:
+                    private_key = fic.read()
+                break
         self.client = bwclient.Client(
             email=self.email,
             password=self.password,

@@ -18,3 +18,4 @@ services:
     - "./setup.cfg:/w/tox.ini"
     - "./node_modules:/w/node_modules"
     - "./.nvmrc:/w/.nvmrc"
+    - "./.tox:/w/.tox"
