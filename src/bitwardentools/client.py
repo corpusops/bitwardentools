@@ -23,7 +23,7 @@ import requests
 from jwt import encode as jwt_encode
 
 from bitwardentools import crypto as bwcrypto
-from bitwardentools.common import L
+from bitwardentools.common import L, caseinsentive_key_search
 
 VAULTIER_FIELD_ID = "vaultiersecretid"
 DEFAULT_CACHE = {"id": {}, "name": {}, "sync": False}
@@ -794,7 +794,7 @@ class Client(object):
         password = password or self.password
         data = self.r("/api/accounts/prelogin", json={"email": email}, token=False)
         jdata = data.json()
-        iterations = jdata["KdfIterations"]
+        iterations = caseinsentive_key_search(jdata, "kdfiterations")
         hashed_password, master_key = bwcrypto.hash_password(
             password, email, iterations=iterations
         )

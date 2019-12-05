@@ -137,4 +137,17 @@ def setup_logging(loglevel=LOGLEVEL):
     toggle_debug(True, debuglevel=debuglvl)
 
 
+def lowered_value(i):
+    return isinstance(i, str) and i.lower() or i
+
+
+def caseinsentive_key_search(d, k):
+    lk = lowered_value(k)
+    for i in d:
+        li = lowered_value(i)
+        if li == lk:
+            return d[i]
+    raise KeyError(k)
+
+
 # vim:set et sts=4 ts=4 tw=0:
