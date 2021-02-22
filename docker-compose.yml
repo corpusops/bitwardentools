@@ -1,0 +1,9 @@
+version: "3.8"
+services:
+  app:
+    image: "${DOCKER_IMAGE:-corpusops/bitwardentools}"
+    environment:
+      START_COMMAND: "${START_COMMAND:-sh -c 'while true;do echo sleep;sleep 65534;done'}"
+    volumes:
+    - "${DATA_FOLDER:-./data}:/w/data"
+    env_file: [.env, .env.local]

@@ -1,0 +1,17 @@
+{
+  "name": "passwords",
+  "version": "1.0.0",
+  "description": "",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://gitlab.example.com/infra/passwords"
+  },
+  "author": "",
+  "license": "BSD",
+  "dependencies": {
+    "@bitwarden/cli": "^1.14.0"
+  }
+}
