@@ -1,0 +1,8 @@
+version: "3.8"
+services:
+  app:
+    build:
+      context: "."
+      args:
+        PY_VER: 3.8
+        REQUIREMENTS: requirements/requirements.txt requirements/requirements-dev.txt

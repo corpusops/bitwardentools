@@ -1,0 +1,38 @@
+# for teleport, do not remove
+openssh-client
+rsync
+# runtime dependencies
+python3
+python3.8
+python3.8-distutils
+python3.8-lib2to3
+libpython3.8
+binutils
+ca-certificates
+curl
+gettext
+git
+less
+libllvm10
+libsoup2.4-1
+llvm-10
+lsb-release
+sudo
+tzdata
+vim
+wget
+python3.8-venv
+python3-virtualenv
+python3-distlib
+python3-pkg-resources
+python3-distutils
+# dev dependencies (after this line, all packages will be removed after build)
+apt-utils
+build-essential
+gpg
+libgcc-9-dev
+libstdc++-9-dev
+llvm-10-dev
+python3.8-dev
+python3-dev
+software-properties-common

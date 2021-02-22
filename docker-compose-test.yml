@@ -1,0 +1,133 @@
+version: "3.8"
+x-bases:
+  x-base: &base
+    env_file: [.env, .env.local]
+    environment:
+      ADMIN_TOKEN: supersecret
+      BITWARDEN_BACKUP_IMAGE: corpusops/dbsmartbackup:postgres-13
+      BITWARDEN_DB_IMAGE: corpusops/postgres:13
+      BITWARDEN_DOMAIN: bitwarden
+      BITWARDEN_IMAGE: bitwardenrs/server-postgresql:1.18.0
+      DATABASE_URL: postgresql://db:db@db/db
+      DATA_FOLDER: /data
+      DISABLE_ADMIN_TOKEN: "true"
+      DOMAIN: http://bitwarden
+      F2B_LOG_LEVEL: DEBUG
+      INVITATION_ORG_NAME: bitwarden bitwarden
+      LOG_FILE: /logs/bitwarden.log
+      LOG_LEVEL: Info
+      MAILCATCHER_PASSWORD: secret
+      MAILCATCHER_USER: mailcatcher
+      MH_API_BIND_ADDR: 0.0.0.0:8025
+      MH_AUTH_FILE: /home/mailhog/pw
+      MH_MAILDIR_PATH: /mails
+      MH_SMTP_BIND_ADDR: 0.0.0.0:1025
+      MH_STORAGE: maildir
+      MH_UI_BIND_ADDR: 0.0.0.0:8025
+      MH_UI_WEB_PATH: /mailcatcher
+      NGINX_REAL_IP_FROM: 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 172.38.0.0/12
+      PASSWORD_ITERATIONS: '2000000'
+      PGPASSWD: "${PGPASSWD:-db}"
+      PGPASSWORD: "${PGPASSWD:-db}"
+      POSTGRES_DB: db
+      POSTGRES_HOST: db
+      POSTGRES_PASSWORD: db
+      POSTGRES_PORT: '5432'
+      POSTGRES_USER: db
+      SIGNUPS_ALLOWED: "true"
+      SIGNUPS_VERIFY: "false"
+      SMTP_EXPLICIT_TLS: "false"
+      SMTP_FROM: no-reply@org.com
+      SMTP_FROM_NAME: bitwarden
+      SMTP_HOST: mailcatcher
+      SMTP_PORT: '1025'
+      SMTP_SSL: "false"
+      SMTP_TIMEOUT: '15'
+      WEBSOCKET_ENABLED: "true"
+networks: {app_net: {driver: bridge, ipam: {config: [{subnet: 172.38.0.0/24}], driver: default}}}
+services:
+  setup:
+    <<: [ *base ]
+    entrypoint:
+    - bash
+    - -ec
+    - |-
+      f=/started_$$(echo $$POSTGRES_DB|sed -re "s![/:]!__!g")
+      hf=/started_hr
+      POSTGRES_STARTUP_TIMEOUT=$${POSTGRES_STARTUP_TIMEOUT:-45s}
+      HELPERS_TIMEOUT=$${HELPERS_TIMEOUT:-45s}
+      u="postgres://$$POSTGRES_USER:$$POSTGRES_PASSWORD@$$POSTGRES_HOST:$$POSTGRES_PORT/$$POSTGRES_DB"
+      rf() { for fl in $$f $$hf;do if [ -f $$fl ] ;then rm -f $$fl;fi;done; }
+      export PATH=/cops_helpers:/$$PATH
+      rf
+      echo "Try connection to pgsql: $$POSTGRES_DB & wait for db init" >&2
+      ( while true;do if ( echo select 1|psql -v ON_ERROR_STOP=1 $$u; );then touch $$f&&break;fi;done )&
+      echo "Try helpers availability" >&2
+      ( set +ex;while true;do frep --version && touch $$hf&&break;sleep 1;echo retryh;done; )&
+      set -x
+      dockerize -timeout 300s -wait "file:///$$f"
+      dockerize -timeout 900s -wait "file:///$$hf"
+      set +x
+      rf
+      while true;do printf "HTTP/1.1 200 OK\nContent-Length: 7\n\nstarted\n"|( nc -l -p 80 || /bin/true);done
+    image: corpusops/postgres:13
+    networks: {app_net: {ipv4_address: 172.38.0.6}}
+    volumes:
+    - helpers:/helpers:rw
+  db:
+    <<: [ *base ]
+    image: corpusops/postgres:13
+    networks: {app_net: {ipv4_address: 172.38.0.4}}
+    security_opt: [seccomp=unconfined]
+    volumes:
+    - db:/var/lib/postgresql/data:rw
+  mailcatcher:
+    <<: [ *base ]
+    entrypoint:
+    - sh
+    - -c
+    - 'chown mailhog /mails && pw=$$(MH_AUTH_FILE="" MailHog bcrypt "$${MAILCATCHER_PASSWORD:-mailcatcher}")
+      && echo "$${MAILCATCHER_USER:-mailcatcher}:$$pw" > $$MH_AUTH_FILE && su mailhog
+      -p -c MailHog'
+    hostname: mailcatcher
+    image: corpusops/mailhog
+    networks: {app_net: {ipv4_address: 172.38.0.12}}
+    user: root
+    volumes:
+    - mails:/mails:rw
+  bitwarden:
+    <<: [ *base ]
+    image: bitwardenrs/server-postgresql:1.18.0
+    hostname: bitwarden
+    depends_on: [db, setup, mailcatcher]
+    entrypoint:
+    - bash
+    - -exc
+    - 'while !(curl -s setup);do echo "not ready">&2;sleep 0.5;done
+      && exec /start.sh "$$@"'
+    networks: {app_net: {ipv4_address: 172.38.0.14}}
+    volumes:
+    - bitwarden:/data:rw
+    - ./bitwarden:/conf:rw
+    - helpers:/helpers:rw
+    - logs:/logs:rw
+  app:
+    networks: {app_net: {}}
+    depends_on: [bitwarden]
+    entrypoint:
+    - bash
+    - -ec
+    - |-
+      while !(curl -s bitwarden &>/dev/null);do echo "not ready">&2;sleep 0.5;done
+      rsync -a  /bitwarden/ /test/
+      chmod -Rf +r /test/
+      export BITWARDEN_PRIVATE_KEY=$$(base64 /test/rsa_key.der|tr -d '\n')
+      exec docker-entrypoint.sh
+    volumes:
+    - "bitwarden:/bitwarden"
+volumes:
+  bitwarden: {}
+  mails: {}
+  logs: {}
+  helpers: {}
+  db:
