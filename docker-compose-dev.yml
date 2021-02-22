@@ -1,0 +1,20 @@
+version: "3.8"
+services:
+  app:
+    environment:
+      NO_NVM_INSTALL: "${NO_NVM_INSTALL-}"
+      NO_PIP_INSTALL: "${NO_PIP_INSTALL-}"
+      NO_BITWARDEN_LOGIN: "1"
+      FILES_EXTRA_DIRS: "${DATA_FOLDER:-./data} ./.tox"
+    volumes:
+    - "./requirements:/w/requirements"
+    - "./src:/w/src"
+    - "./lib:/w/lib"
+    - "${DATA_FOLDER:-./data}:/w/data"
+    - "./bin:/w/bin"
+    - "./git:/w/.git"
+    - "./setup.py:/w/setup.py"
+    - "./setup.cfg:/w/setup.cfg"
+    - "./setup.cfg:/w/tox.ini"
+    - "./node_modules:/w/node_modules"
+    - "./.nvmrc:/w/.nvmrc"
