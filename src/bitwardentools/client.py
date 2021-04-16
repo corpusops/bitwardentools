@@ -1750,7 +1750,7 @@ class Client(object):
     def validate(self, email, password=None, id=None, name=None, sync=None, token=None):
         token = self.get_token(token=token)
         if not self.private_key:
-            raise BitwardenValidateError("no private key")
+            raise BitwardenValidateError("no bitwarden server private key")
         user = self.get_user(email=email, name=name, id=id, sync=sync)
         if not user.emailVerified:
             now = int(time())
