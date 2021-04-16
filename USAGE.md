@@ -120,7 +120,7 @@ user = client.validate('foo@bar.com')
 
 ### encode the bitwarden_rs key for autovalidating user
 ```sh
-cat $BITWARDEN_RS_SERVER_DATA/rsa_key.der|base64|xargs -n1 printf;echo
+base64 $BITWARDEN_RS_SERVER_DATA/rsa_key.der|tr -d '\n'
 => copy paste the result in your .env.local this way
 BITWARDEN_PRIVATE_KEY=MIIxxx
 ```
@@ -129,7 +129,7 @@ BITWARDEN_PRIVATE_KEY=MIIxxx
 ### migrate from vaultier to bitwarden notes
 
 ```sh
-VAULTIER_KEY=$(echo $(cat ~/vaultier_key.bin |base64)|sed "s/ //g")
+VAULTIER_KEY=$(echo $(base64 ~/vaultier_key.bin|tr -d '\n')
 cat >>.env << EOF
 VAULTIER_KEY=${VAULTIER_KEY}
 # if your vauiltier has aditionnal httpauth
