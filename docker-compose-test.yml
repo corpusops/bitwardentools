@@ -117,12 +117,11 @@ services:
     depends_on: [bitwarden]
     entrypoint:
     - bash
-    - -ec
+    - -exc
     - |-
       /cops_helpers/dockerize -wait http://setup -timeout 60s
       rsync -a  /bitwarden/ /test/
-      chmod -Rf +r /test/
-      chown -Rf app /test
+      chmod -Rf +r /test && chown -Rf app /test
       export BITWARDEN_PRIVATE_KEY=$$(base64 /test/rsa_key.der|tr -d '\n')
       exec docker-entrypoint.sh
     volumes:

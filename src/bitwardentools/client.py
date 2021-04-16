@@ -240,7 +240,9 @@ class BWFactory(object):
         return client.delete(self)
 
     def reflect(self):
-        for i, v in [a for a in self.__dict__.items() if not FILTERED_ATTRS.match(a[0])]:
+        for i, v in [
+            a for a in self.__dict__.items() if not FILTERED_ATTRS.match(a[0])
+        ]:
             self.json[i] = v
         for i in [a for a in self.json if FILTERED_ATTRS.match(a)]:
             self.json.pop(i)
@@ -412,7 +414,11 @@ class Item(Cipherdetails):
     def load(self, jsond=None):
         super(Item, self).load(jsond)
         if self.vaultier:
-            sid = [a["value"] for a in self.json.get("fields", []) if a.get("name", "") == VAULTIER_FIELD_ID]
+            sid = [
+                a["value"]
+                for a in self.json.get("fields", [])
+                if a.get("name", "") == VAULTIER_FIELD_ID
+            ]
             if sid:
                 sid = sid[0]
             else:
@@ -624,7 +630,9 @@ class Client(object):
         data = self.r("/api/accounts/prelogin", json={"email": email}, token=False)
         jdata = data.json()
         iterations = jdata["KdfIterations"]
-        hashed_password, master_key = bwcrypto.hash_password(password, email, iterations=iterations)
+        hashed_password, master_key = bwcrypto.hash_password(
+            password, email, iterations=iterations
+        )
         loginpayload = {
             "scope": scope,
             "client_id": self.client_id,
@@ -681,7 +689,11 @@ class Client(object):
                 else:
                     raise LoginError("{email} cli login error")
             sret = ret.stdout.decode()
-            s = [a for a in sret.splitlines() if "BW_SESSION=" in a][0].split()[-1].split('"')[1]
+            s = (
+                [a for a in sret.splitlines() if "BW_SESSION=" in a][0]
+                .split()[-1]
+                .split('"')[1]
+            )
             session = self.sessions[email] = s
         return session
 
@@ -726,12 +738,21 @@ class Client(object):
             try:
                 ret = json.loads(ret.stdout)
             except json.decoder.JSONDecodeError:
-                exc = CliRunError(f"is not json\n" f"{ret.stdout.decode()}\n" f"{ret.stderr.decode()}\n")
+                exc = CliRunError(
+                    f"is not json\n"
+                    f"{ret.stdout.decode()}\n"
+                    f"{ret.stderr.decode()}\n"
+                )
                 exc.process = ret
                 raise exc
             if load:
                 if isinstance(ret, (list, tuple)):
-                    ret = type(ret)([BWFactory.construct(r, client=self, vaultier=vaultier) for r in ret])
+                    ret = type(ret)(
+                        [
+                            BWFactory.construct(r, client=self, vaultier=vaultier)
+                            for r in ret
+                        ]
+                    )
                 elif isinstance(ret, dict):
                     ret = BWFactory.construct(ret, client=self, vaultier=vaultier)
         return ret
@@ -828,7 +849,9 @@ class Client(object):
         except KeyError:
             organizations = self.get_organizations(sync=sync, cache=cache)
         try:
-            return self.finish_orga(organizations["id"][_id], token=token, cache=cache, complete=complete)
+            return self.finish_orga(
+                organizations["id"][_id], token=token, cache=cache, complete=complete
+            )
         except KeyError:
             pass
         try:
@@ -980,7 +1003,10 @@ class Client(object):
             if orga:
                 data = {
                     "cipher": data,
-                    "collectionIds": [self.get_collection(c, orga=orga, token=token).id for c in collections],
+                    "collectionIds": [
+                        self.get_collection(c, orga=orga, token=token).id
+                        for c in collections
+                    ],
                 }
             u = f"/api/ciphers{suf}"
         obj = self._upload_object(u, method=method, data=data, key=key, log=log)
@@ -1033,7 +1059,9 @@ class Client(object):
             "billingEmail": obj.billingEmail,
         }.items():
             data.setdefault(i, v)
-        obj = self._upload_object(f"/api/organizations/{obj.id}", data, log=log, method="put")
+        obj = self._upload_object(
+            f"/api/organizations/{obj.id}", data, log=log, method="put"
+        )
         cache_organization(obj)
         return obj
 
@@ -1063,7 +1091,9 @@ class Client(object):
         }
         log = f'Creating organization {data["name"]}/'
         data.update(jsond)
-        obj = self._upload_object("/api/organizations", data, key=collection_key, log=log)
+        obj = self._upload_object(
+            "/api/organizations", data, key=collection_key, log=log
+        )
         cache_organization(obj)
         return obj
 
@@ -1079,7 +1109,12 @@ class Client(object):
             for sync in [sync, True]:
                 sdata = self.api_sync(sync=sync)
                 enc_okey = (
-                    dict([(a["Id"], a) for a in sdata.get("Profile", {}).get("Organizations", [])])
+                    dict(
+                        [
+                            (a["Id"], a)
+                            for a in sdata.get("Profile", {}).get("Organizations", [])
+                        ]
+                    )
                     .get(orga.id, {})
                     .get("Key", None)
                 )
@@ -1089,7 +1124,9 @@ class Client(object):
                 okey = bwcrypto.decrypt(enc_okey, token["orgs_key"])
                 ret = CACHE["okeys"][orga.id] = enc_okey, okey
                 return ret
-        raise NoOrganizationKeyError(f"No encryption key for {orga.id}, please unlock or be confirmed")
+        raise NoOrganizationKeyError(
+            f"No encryption key for {orga.id}, please unlock or be confirmed"
+        )
 
     def edit_orgcollection(self, collection, token=None, **jsond):
         """
@@ -1118,8 +1155,10 @@ class Client(object):
         cache_collection(obj)
         return obj
 
-    def create_orgcollection(self, name, organizationId=None, orga=None, externalId=None, token=None, **jsond):
-        orga = self.get_organization(organizationId or name or orga)
+    def create_orgcollection(
+        self, name, organizationId=None, orga=None, externalId=None, token=None, **jsond
+    ):
+        orga = self.get_organization(organizationId or orga)
         token = self.get_token(token)
         _, k = self.get_organization_key(orga, token=token)
         encoded_name = bwcrypto.encrypt(bwcrypto.CIPHERS.sym, name, k)
@@ -1129,7 +1168,9 @@ class Client(object):
             log += f" in orga: {orga.name}/{orga.id}:"
         log += f" collection {name}/"
         data.update(jsond)
-        return self._upload_object(f"/api/organizations/{orga.id}/collections", data, key=k, log=log)
+        return self._upload_object(
+            f"/api/organizations/{orga.id}/collections", data, key=k, log=log
+        )
 
     create_collection = create_orgcollection
     edit_collection = edit_orgcollection
@@ -1165,7 +1206,9 @@ class Client(object):
         try:
             ret = _CACHE["all"]
         except KeyError:
-            for enccol in self.r("/api/collections", method="get").json().get("Data", []):
+            for enccol in (
+                self.r("/api/collections", method="get").json().get("Data", [])
+            ):
                 col = BWFactory.construct(enccol, client=self, unmarshall=True)
                 _, colk = self.get_organization_key(col.organizationId, token=token)
                 col.name = bwcrypto.decrypt(col.name, colk).decode()
@@ -1174,7 +1217,11 @@ class Client(object):
         #
         if scope:
             orga = self.get_organization(scope)
-            for r in [col for col in _CACHE["all"]["id"].values() if col.organizationId == orga.id]:
+            for r in [
+                col
+                for col in _CACHE["all"]["id"].values()
+                if col.organizationId == orga.id
+            ]:
                 ret = cache_collection(r, scope=sync_key)
         _CACHE[sync_key] = ret
         #
@@ -1198,7 +1245,9 @@ class Client(object):
                 raise ColSearchError("At least collections or orga/orgaid")
             collections = self.get_collections(orga, sync=sync, token=token)
         if not (_id or externalId):
-            raise ColSearchError("collectionsearch: At least id/item/name or externalId")
+            raise ColSearchError(
+                "collectionsearch: At least id/item/name or externalId"
+            )
         if _id:
             try:
                 return collections["id"][_id]
@@ -1215,7 +1264,9 @@ class Client(object):
                 pass
         raise CollectionNotFound(f"No such collection found {_id}/{externalId}")
 
-    def decrypt(self, value, key=None, orga=None, token=None, recursion=None, dictkey=None):
+    def decrypt(
+        self, value, key=None, orga=None, token=None, recursion=None, dictkey=None
+    ):
         token = self.get_token(token=token)
         nvalue = value
         idv = id(value)
@@ -1252,7 +1303,14 @@ class Client(object):
                 )
 
         elif isinstance(value, (tuple, list)):
-            nvalue = type(value)([self.decrypt(v, orga=orga, key=key, token=token, recursion=recursion) for v in value])
+            nvalue = type(value)(
+                [
+                    self.decrypt(
+                        v, orga=orga, key=key, token=token, recursion=recursion
+                    )
+                    for v in value
+                ]
+            )
         elif isinstance(value, str) and bwcrypto.is_encrypted(value):
             if not key:
                 raise DecryptError("Can't decrypt: key missing")
@@ -1280,7 +1338,9 @@ class Client(object):
         if orga:
             orga = self.get_organization(orga, sync=sync, token=token)
         if collection:
-            collection = self.get_collection(collection, collections=collections, orga=orga, sync=sync, token=token)
+            collection = self.get_collection(
+                collection, collections=collections, orga=orga, sync=sync, token=token
+            )
         try:
             assert scache.get("sync")
         except AssertionError:
@@ -1305,7 +1365,9 @@ class Client(object):
                     )
                 for oid in [a for a in [getattr(obj, "organizationId")] if a]:
                     add_cipher(
-                        scache["by_organization"].setdefault(oid, deepcopy(SECRET_CACHE)),
+                        scache["by_organization"].setdefault(
+                            oid, deepcopy(SECRET_CACHE)
+                        ),
                         obj,
                         vaultier=vaultier,
                     )
@@ -1478,9 +1540,13 @@ class Client(object):
         id = f"{self.item_or_id(item_or_id_or_name)}"
         ret = None
         if collection:
-            collection = self.get_collection(collection, collections=collections, orga=orga, token=token)
+            collection = self.get_collection(
+                collection, collections=collections, orga=orga, token=token
+            )
 
-        s = self.get_ciphers(collection=collection, vaultier=vaultier, orga=orga, sync=sync, token=token)
+        s = self.get_ciphers(
+            collection=collection, vaultier=vaultier, orga=orga, sync=sync, token=token
+        )
         if vaultier:
             try:
                 ret = [s["vaultier"][id]]
@@ -1514,7 +1580,9 @@ class Client(object):
             except SecretNotFound:
                 # but still let 1 collection error message trigger the exception
                 pass
-        collectionn = isinstance(collection, Collection) and collection.name or collection
+        collectionn = (
+            isinstance(collection, Collection) and collection.name or collection
+        )
         raise SecretNotFound(f"No such cipher found {id} in collection {collectionn}")
 
     def patch(self, *args, **kw):
@@ -1546,14 +1614,20 @@ class Client(object):
         if relcollections and not isinstance(relcollections, list):
             relcollections = [relcollections]
         relcollections = [
-            self.get_collection(c, collections=collections, orga=orga, token=token) for c in relcollections
+            self.get_collection(c, collections=collections, orga=orga, token=token)
+            for c in relcollections
         ]
         if relcollections:
             ciphers = [
-                self.get_cipher(s, collection=relcollections[0], collections=collections, orga=orga) for s in ciphers
+                self.get_cipher(
+                    s, collection=relcollections[0], collections=collections, orga=orga
+                )
+                for s in ciphers
             ]
         else:
-            ciphers = [self.get_cipher(s, collections=collections, orga=orga) for s in ciphers]
+            ciphers = [
+                self.get_cipher(s, collections=collections, orga=orga) for s in ciphers
+            ]
 
         for cipher in ciphers:
             colids = list(set([a for a in cipher.collectionIds]))
@@ -1567,7 +1641,10 @@ class Client(object):
             for relcollection in ret:
                 msg = (
                     link
-                    and (f"Will link cipher {cipher.name}/{cipher.id}" f" to {relcollection.name}/{relcollection.id}")
+                    and (
+                        f"Will link cipher {cipher.name}/{cipher.id}"
+                        f" to {relcollection.name}/{relcollection.id}"
+                    )
                     or (
                         f"cipher {cipher.name}/{cipher.id} will be unlinked"
                         f" to {relcollection.name}/{relcollection.id}"
@@ -1668,7 +1745,9 @@ class Client(object):
         if not os.path.exists(directory):
             os.makedirs(directory)
         with open(dest, "wb") as fic:
-            data = bwcrypto.decrypt_bytes(self.r(attachment["url"], method="get").content, attachment["key"])
+            data = bwcrypto.decrypt_bytes(
+                self.r(attachment["url"], method="get").content, attachment["key"]
+            )
             fic.write(data)
         return dest
 
@@ -1793,7 +1872,9 @@ class Client(object):
             raise AlreadyExitingUserError(f"user email:{email} name:{name}")
         except UserNotFoundError:
             pass
-        hashedpw, master_key = bwcrypto.hash_password(password, email, iterations=iterations)
+        hashedpw, master_key = bwcrypto.hash_password(
+            password, email, iterations=iterations
+        )
         ekey, key = bwcrypto.make_sym_key(master_key)
         easymk, pub_asymk, priv_asymk = bwcrypto.make_asym_key(key)
         bpub_asymk = b64encode(pub_asymk).decode()
@@ -1859,7 +1940,9 @@ class Client(object):
         same as search but returns as list
         """
         ret = []
-        for ix, ((typ, i), obj) in enumerate(self.search(json_or_obj, types=types, sync=sync, **kw).items()):
+        for ix, ((typ, i), obj) in enumerate(
+            self.search(json_or_obj, types=types, sync=sync, **kw).items()
+        ):
             if limit is not None and len(ret) > limit:
                 break
             ret.append(obj)

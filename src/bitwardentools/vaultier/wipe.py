@@ -40,7 +40,12 @@ def main(jsonf, server, email, password):
                 except KeyError:
                     continue
                 for ix, (_, o) in enumerate(ods.items()):
-                    orgas_to_delete[f"{v}{ix}"] = {"bw": o, "vault": vdata, "name": v, "collections": OrderedDict()}
+                    orgas_to_delete[f"{v}{ix}"] = {
+                        "bw": o,
+                        "vault": vdata,
+                        "name": v,
+                        "collections": OrderedDict(),
+                    }
                     L.info(f"Will delete orga {v}")
 
     # either create or edit passwords

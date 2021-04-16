@@ -119,8 +119,10 @@ fi
 
 execute_hooks post $@
 
+env|grep BITW
+set -x
 if [[ -z $@ ]];then
-    exec gosu $SHELL_USER bash -lic "$START_COMMAND"
+    exec gosu $SHELL_USER bash -lic "env|grep BIT;$START_COMMAND"
 elif [[ "$@" == "shell" ]];then
     exec gosu $SHELL_USER bash -li
 else
