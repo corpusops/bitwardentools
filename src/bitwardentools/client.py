@@ -1482,8 +1482,10 @@ class Client(object):
             token=token,
         )
         try:
-            return sec.attachments
-        except AttributeError:
+            ret = sec.attachments
+            assert ret is not None
+            return ret
+        except (AttributeError, AssertionError):
             exc = NoAttachmentsError()
             exc.instance = sec
             raise exc
