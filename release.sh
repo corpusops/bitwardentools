@@ -3,7 +3,7 @@ set -ex
 version=${version:-$1}
 force=${force-}
 remote=${remote:-origin}
-remotebranch=${remotebranch:-$(git rev-parse --abbrev-ref --symbolic-full-name @{u})}
+remotebranch=${remotebranch:-$(git rev-parse --abbrev-ref --symbolic-full-name @{u}|sed -re "s/.*\///g")}
 gitargs=""
 if [[ -n $force ]];then
     gitargs="--force"
