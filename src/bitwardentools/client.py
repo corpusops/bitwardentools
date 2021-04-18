@@ -2141,6 +2141,21 @@ class Client(object):
         )
         return ret
 
+    def add_user_to_orga(self, user, orga):
+        pass
+
+    def add_user_to_collections(self, user, collections=None, orga=None, token=None, sync=None):
+        if not (collections or orga):
+            raise BitwardenError('Choose collections or orga to add to')
+        if collections:
+            if isinstance(collections, list):
+                collections = [collections]
+        elif orga:
+            collections = self.get_collections(scope=orga, token=token, sync=sync)
+        collections = [self.get_collection(c, orga=orga, token=token, sync=sync)
+                       for c in collections]
+        import pdb;pdb.set_trace()  ## Breakpoint ##
+
 
 def bust_cache(cache=None):
     if cache is None:
