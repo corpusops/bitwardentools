@@ -10,9 +10,9 @@ from multiprocessing import Pool
 import click
 
 import bitwardentools
-
+from bitwardentools import Client, L, as_bool
 from bitwardentools import client as bwclient
-from bitwardentools import Client, L, as_bool, sanitize
+from bitwardentools import sanitize
 
 bitwardentools.setup_logging()
 JSON = os.environ.get("VAULTIER_JSON", "data/export/vaultier.json")
