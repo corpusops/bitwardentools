@@ -3,8 +3,8 @@ on:
     inputs:
       RUNTESTS: {description: 'Run tests', required: false}
   push:
-  pull_request:
   schedule: [{cron: '1 0 1,15 * *'}]
+  repository_dispatch:
 env:
   DOCKER_BUILDKIT: "1"
   COMPOSE_DOCKER_CLI_BUILD: "1"
@@ -20,8 +20,17 @@ env:
 jobs:
   ci:
     runs-on: ubuntu-latest
+    if: (  (github.event_name != 'repository_dispatch')
+         ||(github.event_name == 'repository_dispatch' &&
+             github.event.client_payload.slash_command.sha != '' &&
+             contains(github.event.client_payload.pull_request.head.sha, github.event.client_payload.slash_command.sha)))
     steps:
     - uses: actions/checkout@v2
+      if: github.event_name != 'repository_dispatch'
+    - uses: actions/checkout@v2
+      if: github.event_name == 'repository_dispatch'
+      name: Fork based /ok-to-test checkout
+      with: {ref: 'refs/pull/${{ github.event.client_payload.pull_request.number }}/merge'}
     - name: Set vars
       run: |-
           if ( echo "$GITHUB_REF" | egrep -q "${RELEASABLE_BRANCHES}" ) \
