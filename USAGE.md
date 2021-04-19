@@ -58,6 +58,7 @@ orga = client.create(**{
     'object': 'organization',
     'name': "org",
     'email': email})
+# Create a collection
 col = client.create(**{
     'object': 'org-collection',
     'name': "testcol",
@@ -66,12 +67,14 @@ col2 = client.create(**{
     'object': 'org-collection',
     'name': "testcol2",
     'organizationId': client.item_or_id(orga)})
+# Create a login
 cipher = client.create(**{
     "name": "test",
     "object": "item",
     "organizationId": orga.id,
     "notes": "supernote",
-    "login": {'username': "alice", "password": "rabbit"}})
+    "login": {'username': "alice", "password": "rabbit"},
+    "collectionIds": [col2.id],})
 #
 # Patch existing objects
 testorg = client.get_organization("org")
