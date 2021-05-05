@@ -1,8 +1,10 @@
-# tools for working with bitwarden (_rs) and vaultier
+# tools for working with vaultwarden/bitwarden (_rs) and vaultier
 
 This package containers a python3+ client for bitwarden which uses both a native python implementation but also wraps the official the official npm `@bitwarden/cli`.
 
-The ultimate goal is certainly only to rely on python implementation against the bitwarden_rs server implementation.
+The ultimate goal is certainly only to rely on python implementation against the vaultwarden/bitwarden_rs server implementation.
+
+- [![.github/workflows/cicd.yml](https://github.com/corpusops/bitwardentools/actions/workflows/cicd.yml/badge.svg?branch=main)](https://github.com/corpusops/bitwardentools/actions/workflows/cicd.yml)
 
 ## Features
 - api controllable client
@@ -56,7 +58,7 @@ docker-compose exec -U app app tox -e linting,coverage
     [1](http://gnunux.info/dotclear2/index.php?post/2020/10/11/%C3%89crire-un-client-Bitwarden-en-python-%3A-identifiant)
     [2](http://gnunux.info/dotclear2/index.php?post/2020/10/11/%C3%89crire-un-client-Bitwarden-en-python-%3A-cr%C3%A9er-une-organisation-et-une-collection)
     [3](http://gnunux.info/dotclear2/index.php?post/2020/10/11/%C3%89crire-un-client-Bitwarden-en-python)
-- https://github.com/dani-garcia/bitwarden_rs/
+- https://github.com/dani-garcia/vaultwarden/ (old: https://github.com/dani-garcia/bitwarden_rs/ )
 - https://github.com/doy/rbw/tree/master/src
 - https://github.com/bitwarden/jslib
 - https://github.com/birlorg/bitwarden-cli/tree/trunk/python/bitwarden

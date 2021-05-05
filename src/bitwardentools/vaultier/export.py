@@ -65,6 +65,7 @@ def export_workspace(client, workspace_id=None):
     pretty_json_file = json_file.replace(".json", ".pretty.json")
     vaults = client.list_vaults(workspace.id)
     L.info(f"Exporting {workspace.name} / {workspace.id}")
+    all_secrets = []
     for idx, vault in enumerate(vaults):
         vault_data = {
             "id": vault.id,
@@ -76,7 +77,7 @@ def export_workspace(client, workspace_id=None):
         }
         L.info("Export vault {name}/{id}".format(**vault_data))
         cards = client.list_cards(vault.id)
-        for card in cards:
+        for numcard, card in enumerate(cards):
             card_data = {
                 "id": card.id,
                 "name": card.name,
@@ -86,6 +87,24 @@ def export_workspace(client, workspace_id=None):
             }
             L.info("Export card {0[name]}/{1[name]}".format(vault_data, card_data))
             secrets = client.list_secrets(card.id)
+            if not secrets:
+                if not card.description:
+                    L.info(
+                        f"Not secrets for card, not exporting {card.name} /"
+                        f" {card.id} / {card.slug} / {card.description}"
+                    )
+                    continue
+                else:
+                    # handle misused cards as secrets...
+                    description = f"{card.name}\n{card.description}"
+                    card_data["secrets"].append(
+                        {
+                            "id": f"99{idx}{numcard}42421",
+                            "name": card.name,
+                            "type": 100,
+                            "data": {"note": description},
+                        }
+                    )
             for secret in secrets:
                 secret = client.decrypt_secret(secret, workspace.workspaceKey)
                 secret_data = {
@@ -121,6 +140,7 @@ def export_workspace(client, workspace_id=None):
                             os.remove(file_name)
                             os.rmdir(os.path.join(directory, str(secret.id)))
                 card_data["secrets"].append(secret_data)
+                all_secrets.append((secret, secret_data))
             vault_data["cards"].append(card_data)
         workspace_data["vaults"].append(vault_data)
     try:
