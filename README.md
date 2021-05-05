@@ -10,6 +10,7 @@ The ultimate goal is certainly only to rely on python implementation against the
 - api controllable client
 - Create, Read, Update, Delete,  on organizations, collection, ciphers, users (also disable/enable), and attachments
 - Attach Ciphers to organization collections
+- Set access at orgas, collections and users levels.
 - Donwload/Upload attachments to vault and organizations
 - The client also integrate a thin wrapper to official npm CLI (see `call` mathod)
 - Read [api](./src/bitwardentools/client.py)  for longer details

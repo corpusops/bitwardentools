@@ -126,11 +126,32 @@ user, pw = client.create_user('foo@bar.com', password=, passwordhint=, name=)
 # you can manually validate an account with:
 user = client.validate('foo@bar.com')
 # you can also manage orgs invitations
-acl = client.accept_invitation('foo@bar.com', orga)
-acl = client.confirm_invitation('foo@bar.com', orga)
+acl = client.accept_invitation('foo@bar.com', orga)  # need bitwarden server private key
+acl = client.confirm_invitation('foo@bar.com', orga)  # need bitwarden server private key
+# you can also manage collection permissions
+## add user to orga
+c.add_user_to_organization(user, orga, collections=col)
+## set them at orga level (will add to orga if not already member)
+c.set_organization_access(user, orga, collections=col, hidepasswords=False, readOnly=True/False)
+c.set_organization_access(user, orga, {"collection": col, "hidePasswords": False}, hidepasswords=True)
+## add them at collection level
+c.set_collection_access(user, col, hidepasswords=True/False, readOnly=True/False)
+## remove from collection: col
+c.set_organization_access(user, orga, {"collection": col, "remove": True})
+### or
+c.set_collection_access(user, {"collection": col, "remove": True})
+## get acls infos
+c.get_accesses(orga)
+c.get_accesses(col)
+c.get_accesses({"user": user, "collection": col})
+c.get_accesses({"user": user, "orga": orga})
+## remove from collection
+c.remove_user_from_collection(userOrEmail, colc)
+## remove from orga
+c.remove_user_from_organization(userOrEmail, orga)
 ```
 
-### encode the bitwarden_rs key for autovalidating user
+### encode the vaultwarden/bitwarden_rs key for autovalidating user
 ```sh
 base64 $BITWARDEN_RS_SERVER_DATA/rsa_key.der|tr -d '\n'
 => copy paste the result in your .env.local this way
