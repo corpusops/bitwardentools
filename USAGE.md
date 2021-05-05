@@ -67,7 +67,7 @@ col2 = client.create(**{
     'object': 'org-collection',
     'name': "testcol2",
     'organizationId': client.item_or_id(orga)})
-# Create a login
+# Create a login within an organization, collectionIds is mandatory on bitwarden_rs 1.19+
 cipher = client.create(**{
     "name": "test",
     "object": "item",
@@ -75,6 +75,12 @@ cipher = client.create(**{
     "notes": "supernote",
     "login": {'username': "alice", "password": "rabbit"},
     "collectionIds": [col2.id],})
+# Create a login within your personal vault
+cipher = client.create(**{
+    "name": "test",
+    "object": "item",
+    "notes": "supernote",
+    "login": {'username': "alice", "password": "rabbit"})
 #
 # Patch existing objects
 testorg = client.get_organization("org")
@@ -119,6 +125,9 @@ user, pw = client.create_user('foo@bar.com', password=, passwordhint=, name=)
 # the user will be automatically validated
 # you can manually validate an account with:
 user = client.validate('foo@bar.com')
+# you can also manage orgs invitations
+acl = client.accept_invitation('foo@bar.com', orga)
+acl = client.confirm_invitation('foo@bar.com', orga)
 ```
 
 ### encode the bitwarden_rs key for autovalidating user
@@ -166,12 +175,20 @@ time python src/bitwardentools/vaultier/import_structure.py
 time python src/bitwardentools/vaultier/sync_secrets.py
 ```
 
-### load vaultier json members as bitwarden users Profiles
+### load vaultier json members as bitwarden users Profiles and tie them to their secrets
 ```sh
 python src/bitwardentools/vaultier/invite.py
 ```
-### link users to their relative orga/collections as on vaultier
+### Notify users of their accounts
 ```sh
-python src/bitwardentools/vaultier/acls.py
+python src/bitwardentools/vaultier/notify.py --dry-run=0
+```
+
+### Security note
+We provide a ``bitwardentools.client.bust_cache`` method to invalidate any cache in memory, please use it whenever you have finished to access your secrets.
+
+```python
+from bitwardentools.client import bust_cache
+bust_cache()
 ```
 

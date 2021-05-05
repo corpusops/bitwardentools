@@ -11,11 +11,11 @@ import itertools
 import json
 import os
 import re
+import secrets
 import traceback
 from base64 import b64decode, b64encode
 from collections import OrderedDict
 from copy import deepcopy
-from secrets import token_bytes
 from subprocess import run
 from time import time
 
@@ -27,23 +27,23 @@ from bitwardentools.common import L
 
 VAULTIER_FIELD_ID = "vaultiersecretid"
 DEFAULT_CACHE = {"id": {}, "name": {}, "sync": False}
-SECRET_CACHE = {"id": {}, "name": {}, "vaultier": {}, "sync": []}
-CACHE = {
+SYNC_ALL_ORGAS_ID = "__orga__all__ORGAS__"
+SYNC_ORGA_ID = "__orga__{0}"
+SECRET_CACHE = {"id": {}, "name": {}, "vaultiersecretid": {}, "sync": []}
+DEFAULT_BITWARDEN_CACHE = {
     "sync": {},
-    "users": {},
-    "okeys": {},
     "templates": {},
+    "users": deepcopy(DEFAULT_CACHE),
     "organizations": deepcopy(DEFAULT_CACHE),
-    "collections": deepcopy(DEFAULT_CACHE),
+    "collections": {"sync": False, SYNC_ALL_ORGAS_ID: deepcopy(DEFAULT_CACHE)},
     "ciphers": {
-        "raw": {},
         "sync": False,
         "by_cipher": deepcopy(SECRET_CACHE),
         "by_collection": {},
         "by_organization": {},
     },
 }
-
+CACHE = deepcopy(DEFAULT_BITWARDEN_CACHE)
 FILTERED_ATTRS = re.compile("^_|^vaultier|^json$")
 TYPES_MAPPING = {"org-collection": "orgcollection"}
 REVERSE_TYPES_MAPPING = dict([(v, k) for k, v in TYPES_MAPPING.items()])
@@ -66,13 +66,36 @@ TYPMAPPER = {
     "securenote": "cipher",
     "identity": "cipher",
     "login": "cipher",
+    "profile": "profile",
+    "user": "profile",
 }
-
-
-def pop_cache(cache):
-    for i in [a for a in cache]:
-        cache.pop(i, None)
-    return cache
+COLTYPMAPPER = {
+    "organization": "organizations",
+    "collection": "collections",
+    "orgcollection": "collections",
+    "user": "users",
+    "profiles": "users",
+    "profile": "users",
+    "cipher": "ciphers",
+    "cipherdetails": "ciphers",
+    "item": "ciphers",
+    "card": "ciphers",
+    "note": "ciphers",
+    "securenote": "ciphers",
+    "login": "ciphers",
+}
+ORGA_PERMISSIONS = {
+    "accessBusinessPortal": False,
+    "accessEventLogs": False,
+    "accessImportExport": False,
+    "accessReports": False,
+    "manageAllCollections": False,
+    "manageAssignedCollections": False,
+    "manageGroups": False,
+    "manageSso": False,
+    "managePolicies": False,
+    "manageUsers": False,
+}
 
 
 def uncapitzalize(s):
@@ -88,8 +111,105 @@ def clibase64(item):
     return enc.decode()
 
 
+def strip_dict_data(data, skip=None):
+    if skip and isinstance(skip, list):
+        skip = "|".join(skip)
+    if skip:
+        skip = re.compile(skip)
+    data = deepcopy(data)
+    if isinstance(data, dict):
+        for d in [a for a in data]:
+            if skip and skip.search(d):
+                data.pop(d, None)
+                continue
+            data[d] = strip_dict_data(data[d], skip=skip)
+    elif isinstance(data, (list, tuple, set)):
+        a = []
+        for i in data:
+            a.append(strip_dict_data(i, skip=skip))
+        data = type(data)(a)
+    return data
+
+
+def rewrite_acls_collection(i, skip=None):
+    if skip and isinstance(skip, list):
+        skip = "|".join(skip)
+    if skip:
+        skip = re.compile(skip)
+    if isinstance(i, dict):
+        for v, k in {
+            "Data": "data",
+            "Id": "id",
+            "AccessAll": "accessAll",
+            "Email": "email",
+            "Name": "name",
+            "Status": "status",
+            "Collections": "collections",
+            "UserId": "userId",
+            "Type": "type",
+            "HidePasswords": "hidePasswords",
+            "ReadOnly": "readOnly",
+        }.items():
+            if skip and (skip.search(v) or skip.search(k)):
+                i.pop(v, None)
+                i.pop(k, None)
+            try:
+                i[k] = rewrite_acls_collection(i.pop(v), skip=skip)
+            except KeyError:
+                continue
+        return i
+    elif isinstance(i, list):
+        for idx in range(len(i)):
+            i[idx] = rewrite_acls_collection(i[idx], skip=skip)
+    return i
+
+
 class BitwardenError(Exception):
     """."""
+
+
+class ConfirmationAcceptError(BitwardenError):
+    """."""
+
+    email = None
+    orga = None
+
+
+class AlreadyConfirmedError(ConfirmationAcceptError):
+    """."""
+
+
+class PostConfirmedError(ConfirmationAcceptError):
+    """."""
+
+    response = None
+
+
+class InvitationAcceptError(BitwardenError):
+    """."""
+
+    email = None
+    orga = None
+
+
+class AlreadyInvitedError(InvitationAcceptError):
+    """."""
+
+
+class PostInvitedError(InvitationAcceptError):
+    """."""
+
+    response = None
+
+
+class BitwardenUncacheError(BitwardenError):
+    """."""
+
+
+class BitwardenInvalidInput(BitwardenError):
+    """."""
+
+    inputs = None
 
 
 class ResponseError(BitwardenError):
@@ -150,10 +270,18 @@ class NoOrganizationKeyError(BitwardenError):
     instance = None
 
 
-class NoSingleOrgaForNameError(BitwardenError):
+class NoSingleItemForNameError(BitwardenError):
     """."""
 
     instance = None
+
+
+class NoSingleOrgaForNameError(NoSingleItemForNameError):
+    """."""
+
+
+class NoSingleCollectionForNameError(NoSingleItemForNameError):
+    """."""
 
 
 class NoAttachmentsError(BitwardenError):
@@ -194,6 +322,16 @@ class CliLoginError(LoginError, CliRunError):
     """."""
 
     process = None
+
+
+class AlreadyExitingUserError(RunError):
+    """."""
+
+
+class NoAccessError(BitwardenError):
+    """."""
+
+    objects = None
 
 
 def _get_obj_type(t):
@@ -268,6 +406,7 @@ class BWFactory(object):
             vaultier = True
         for k in ["vaultier", "vaultiersecretid"]:
             setattr(self, k, jsond.pop(k, locals()[k]))
+        self.broken_objs = OrderedDict()
 
     def delete(self, client):
         return client.delete(self)
@@ -420,6 +559,13 @@ class CipherType(enum.IntEnum):
     Identity = 4
 
 
+class CollectionAccess(enum.IntEnum):
+    owner = 0
+    admin = 1
+    manager = 3
+    user = 2
+
+
 class Profile(BWFactory):
     """."""
 
@@ -428,7 +574,7 @@ class Organization(BWFactory):
     """."""
 
     def __init__(self, *a, **kw):
-        ret = super(Organization, self).__init__(*a, *kw)
+        ret = super(Organization, self).__init__(*a, **kw)
         self._complete = False
         return ret
 
@@ -525,72 +671,6 @@ class Collection(BWFactory):
 Orgcollection = Collection
 
 
-def get_all_cached_items(subcache):
-    values = []
-    for k in ("name",):
-        for namevalue, items in subcache[k].items():
-            values.append(items)
-    for k in "id", "vaultier":
-        try:
-            values.append(subcache[k])
-        except KeyError:
-            pass
-    return values
-
-
-def get_reverse_cache():
-    rciphers = get_all_cached_items(CACHE["ciphers"]["by_cipher"])
-    for k in "by_collection", "by_organization":
-        for container in CACHE["ciphers"][k]:
-            rciphers.extend(get_all_cached_items(CACHE["ciphers"][k][container]))
-    return {
-        "organization": get_all_cached_items(CACHE["organizations"]),
-        "collection": get_all_cached_items(CACHE["collections"]),
-        "cipher": rciphers,
-    }
-
-
-def add_cipher(ret, obj, vaultier=False):
-    ret["id"][str(obj.id)] = obj
-    ret["name"].setdefault(obj.name, {})[obj.id] = obj
-    if vaultier and getattr(obj, "vaultiersecretid", False):
-        ret["vaultier"][str(obj.vaultiersecretid)] = obj
-
-
-def cache_cipher(r, vaultier=True):
-    scache = CACHE["ciphers"]
-    scache["raw"][r.id] = r
-    add_cipher(scache["by_cipher"], r, vaultier=vaultier)
-    for cid in getattr(r, "collectionIds"):
-        add_cipher(
-            scache["by_collection"].setdefault(cid, deepcopy(SECRET_CACHE)),
-            r,
-            vaultier=vaultier,
-        )
-    for oid in [a for a in [getattr(r, "organizationId")] if a]:
-        add_cipher(
-            scache["by_organization"].setdefault(oid, deepcopy(SECRET_CACHE)),
-            r,
-            vaultier=vaultier,
-        )
-
-
-def cache_organization(r):
-    CACHE["organizations"].setdefault("id", {})[r.id] = r
-    CACHE["organizations"].setdefault("name", {}).setdefault(r.name, {})[r.id] = r
-
-
-def cache_collection(r, scope="all"):
-    if not isinstance(scope, dict):
-        scope = CACHE["collections"].setdefault(scope, deepcopy(DEFAULT_CACHE))
-    scope["id"][r.id] = r
-    scope["name"][r.name] = r
-    ex = scope.setdefault("externalId", {})
-    if getattr(r, "externalId", None):
-        ex[r.externalId] = r
-    return scope
-
-
 class Client(object):
     def __init__(
         self,
@@ -603,8 +683,13 @@ class Client(object):
         client_id="python",
         client_uuid=CUUID,
         login=True,
+        cache=None,
         vaultier=False,
     ):
+        # goal is to allow shared cache amongst client instances
+        # but also if we want totally isolated caches
+        if cache is None:
+            cache = CACHE
         if not email:
             raise RunError("no email")
         if not server:
@@ -628,9 +713,19 @@ class Client(object):
         self.client_id = client_id
         self.client_uuid = client_uuid
         self.templates = {}
-        self.token = None
+        self._cache = cache
+        self.tokens = {}
         if login:
-            self.token = self.login()
+            self.login()
+
+    @property
+    def token(self):
+        return self.tokens.get(self.email, None)
+
+    @token.setter
+    def token_set(self, value):
+        self.tokens[self.email] = value
+        return self.tokens[self.email]
 
     def adminr(
         self,
@@ -653,29 +748,22 @@ class Client(object):
             headers = {}
         return getattr(requests, method.lower())(url, headers=headers, *a, **kw)
 
-    def r(self, uri, method="post", headers=None, token=None, *a, **kw):
+    def r(self, uri, method="post", headers=None, token=None, retry=True, *a, **kw):
         url = uri
         if not url.startswith("http"):
             url = f"{self.server}{uri}"
         if headers is None:
             headers = {}
         if token is not False:
-            record = not token or not self.token
-            token = token or self.token
-            if not token:
-                token = self.login()
-            if record:
-                self.token = token
+            token = self.get_token(token)
             headers.update({"Authorization": f"Bearer {token['access_token']}"})
         resp = getattr(requests, method.lower())(url, headers=headers, *a, **kw)
-        if resp.status_code in [401] and token is not False:
+        if resp.status_code in [401] and token is not False and retry:
             L.debug(
                 f"Access denied, trying to retry after refreshing token for {token['email']}"
             )
-            ntoken = self.login(token["email"], token["password"])
-            if record and (token is self.token):
-                self.token = ntoken
-            headers.update({"Authorization": f"Bearer {ntoken['access_token']}"})
+            token = self.login(token["email"], token["password"])
+            headers.update({"Authorization": f"Bearer {token['access_token']}"})
             resp = getattr(requests, method.lower())(url, headers=headers, *a, **kw)
         return resp
 
@@ -687,6 +775,22 @@ class Client(object):
         grant_type="password",
     ):
         email = email or self.email
+        try:
+            token = self.tokens[email]
+        except KeyError:
+            pass
+        else:
+            # as token is already there, test if token is still usable
+            resp = self.r(
+                "/api/accounts/revision-date", token=token, retry=False, method="get"
+            )
+            try:
+                self.assert_bw_response(resp)
+            except ResponseError:
+                self.tokens.pop(email, None)
+            else:
+                token["_btw_login_count"] += 1
+                return token
         password = password or self.password
         data = self.r("/api/accounts/prelogin", json={"email": email}, token=False)
         jdata = data.json()
@@ -710,6 +814,7 @@ class Client(object):
             exc.response = data
             raise exc
         token = data.json()
+        token["_btw_login_count"] = 1
         token["iterations"] = iterations
         token["password"] = password
         token["hashed_password"] = hashed_password
@@ -718,6 +823,7 @@ class Client(object):
         for k, f in {"Key": "user_key", "PrivateKey": "orgs_key"}.items():
             key = k != "PrivateKey" and master_key or token.get("user_key")
             token[f] = bwcrypto.decrypt(token[k], key)
+        self.tokens[email] = token
         return token
 
     def item_or_id(self, item_or_id):
@@ -825,15 +931,15 @@ class Client(object):
         otype = get_obj_type(otype)
         bwt = get_bw_type(otype)
         try:
-            tpl = CACHE["templates"][otype]
+            tpl = self._cache["templates"][otype]
         except KeyError:
-            tpl = CACHE["templates"][otype] = self.call(f"get template {bwt}")
+            tpl = self._cache["templates"][otype] = self.call(f"get template {bwt}")
         tpl = deepcopy(tpl)
         tpl.update(kw)
         return tpl
 
     def api_sync(self, sync=None, cache=None, token=None):
-        _CACHE = CACHE["sync"]
+        _CACHE = self._cache["sync"]
         k = "api_sync"
         token = self.get_token(token)
         if sync is None:
@@ -872,12 +978,12 @@ class Client(object):
                 unmarshall=True,
             )
             orga._complete = True
-            cache_organization(orga)
+            self.cache(orga)
         return orga
 
     def get_organizations(self, sync=None, cache=None, token=None):
         token = self.get_token(token)
-        _CACHE = CACHE["organizations"]
+        _CACHE = self._cache["organizations"]
         if sync is None:
             sync = False
         if cache is None:
@@ -892,18 +998,23 @@ class Client(object):
                 orga = deepcopy(orga)
                 orga["Object"] = "organization"
                 obj = BWFactory.construct(orga, client=self, unmarshall=True)
-                cache_organization(obj)
+                self.cache(obj)
             _CACHE["sync"] = True
         return _CACHE
 
     def get_organization(self, orga, sync=None, cache=None, token=None, complete=None):
         token = self.get_token(token)
         if isinstance(orga, Organization):
-            return orga
+            if not sync:
+                return orga
+            else:
+                orga = orga.id
         _id = self.item_or_id(orga)
+        if isinstance(_id, str):
+            _id = _id.lower()
         try:
             return self.finish_orga(
-                CACHE["organizations"]["id"][_id],
+                self._cache["organizations"]["id"][_id],
                 token=token,
                 cache=cache,
                 complete=complete,
@@ -920,7 +1031,7 @@ class Client(object):
             orgas = organizations["name"][_id]
             if len(orgas) > 1:
                 exc = NoSingleOrgaForNameError(f"More that one orga with {_id} name.")
-                exc.isntance = organizations
+                exc.instance = organizations
                 raise exc
             for a, v in orgas.items():
                 return self.finish_orga(v, token=token, cache=cache, complete=complete)
@@ -973,6 +1084,91 @@ class Client(object):
             val = type(val)([self.encrypt_item(v, key) for v in val])
         return val
 
+    def _cache_objects(
+        self, items, cache_key=None, cache=None, attributes=None, uniques=None, id_=None
+    ):
+        if not isinstance(items, (list, tuple)):
+            items = [items]
+        if cache is None:
+            cache = self._cache
+        if cache_key:
+            cache = cache.setdefault(cache_key, deepcopy(DEFAULT_CACHE))
+        if not uniques:
+            uniques = ["id", "externalId", "vaultiersecretid"]
+        if attributes is None:
+            attributes = ["id", "name"]
+        attributes = list(set(attributes + uniques))
+        for a in attributes:
+            subcache = cache.setdefault(a, OrderedDict())
+            if not items:
+                continue
+            for item in items:
+                if not hasattr(item, a):
+                    continue
+                itemid = id_ or item.id
+                identifier = getattr(item, a)
+                if identifier and (a in ["vaultiersecretid"]):
+                    identifier = str(identifier)
+                if isinstance(identifier, str):
+                    identifier = identifier.lower()
+                if a in uniques:
+                    if not identifier:
+                        continue
+                    subcache[identifier] = item
+                else:
+                    subsubcache = subcache.setdefault(identifier, OrderedDict())
+                    subsubcache[itemid] = item
+        return cache
+
+    _cache_object = _cache_objects
+
+    def cache_user(self, r, **kw):
+        return self._cache_objects(r, cache_key="users", uniques=["id", "email"])
+
+    def cache_organization(self, r, **kw):
+        return self._cache_objects(r, "organizations")
+
+    def cache_collection(self, r, cache_key=SYNC_ALL_ORGAS_ID, **kw):
+        return self._cache_objects(
+            r, cache=self._cache["collections"], cache_key=cache_key, **kw
+        )
+
+    def add_cipher(self, ret, obj, **kw):
+        return self._cache_object(obj, cache=ret)
+
+    def cache_cipher(self, r, vaultier=True, **kw):
+        scache = self._cache["ciphers"]
+        self._cache_object(r, cache=scache["by_cipher"])
+        for cid in getattr(r, "collectionIds"):
+            self._cache_object(
+                r, cache=scache["by_collection"].setdefault(cid, deepcopy(SECRET_CACHE))
+            )
+        for oid in [a for a in [getattr(r, "organizationId")] if a]:
+            self._cache_object(
+                r,
+                cache=scache["by_organization"].setdefault(oid, deepcopy(SECRET_CACHE)),
+            )
+        return scache
+
+    def cache(self, obj, **kw):
+        ret = []
+        if not isinstance(obj, (list, tuple, set)):
+            obj = [obj]
+        for i in obj:
+            if isinstance(i, Profile):
+                cache_method = self.cache_user
+            elif isinstance(i, Collection):
+                cache_method = self.cache_collection
+            elif isinstance(i, Organization):
+                cache_method = self.cache_organization
+            elif isinstance(i, Item):
+                cache_method = self.cache_cipher
+            else:
+                cache_method = None
+            if cache_method:
+                ret.append(cache_method(i, **kw))
+        return ret
+
     def _upload_object(self, uri, data, key=None, log=None, method="post"):
         resp = self.r(uri, json=data, method=method)
         self.assert_bw_response(resp)
@@ -983,16 +1179,7 @@ class Client(object):
         if not log:
             log = f"Created {obj.object}"
         log += f"{obj.id}"
-        if isinstance(obj, Collection):
-            cache_method = cache_collection
-        elif isinstance(obj, Organization):
-            cache_method = cache_organization
-        elif isinstance(obj, Item):
-            cache_method = cache_cipher
-        else:
-            cache_method = None
-        if cache_method:
-            cache_method(obj)
+        self.cache(obj)
         L.info(log)
         return obj
 
@@ -1141,13 +1328,13 @@ class Client(object):
         obj = self._upload_object(
             f"/api/organizations/{obj.id}", data, log=log, method="put"
         )
-        cache_organization(obj)
+        self.cache(obj)
         return obj
 
     def create_organization(
         self,
         name,
-        email,
+        email=None,
         collection_name=None,
         collection_key=None,
         plan_type=0,
@@ -1157,7 +1344,8 @@ class Client(object):
         if collection_name is None:
             collection_name = f"C: {name}"
         if collection_key is None:
-            collection_key = token_bytes(64)
+            collection_key = secrets.token_bytes(64)
+        email = email or self.email
         token = self.get_token(token)
         encoded_key = bwcrypto.encrypt_asym(collection_key, token["orgs_key"])
         encoded_collection_name = bwcrypto.encrypt_sym(collection_name, collection_key)
@@ -1165,7 +1353,7 @@ class Client(object):
             "key": encoded_key,
             "collectionName": encoded_collection_name,
             "name": name,
-            "billingEmail": email or self.email,
+            "billingEmail": email,
             "planType": plan_type,
         }
         log = f'Creating organization {data["name"]}/'
@@ -1173,16 +1361,17 @@ class Client(object):
         obj = self._upload_object(
             "/api/organizations", data, key=collection_key, log=log
         )
-        cache_organization(obj)
+        self.cache(obj)
         return obj
 
     def get_organization_key(self, orga, token=None, sync=None):
+        keys = self._cache["organizations"].setdefault("keys", {})
         if sync is None:
             sync = False
         if not isinstance(orga, Organization):
             orga = self.get_organization(orga, sync=sync)
         try:
-            return CACHE["okeys"][orga.id]
+            return keys[orga.id]
         except KeyError:
             token = self.get_token(token)
             for sync in [sync, True]:
@@ -1200,8 +1389,11 @@ class Client(object):
                 if enc_okey:
                     break
             if enc_okey:
-                okey = bwcrypto.decrypt(enc_okey, token["orgs_key"])
-                ret = CACHE["okeys"][orga.id] = enc_okey, okey
+                try:
+                    okey = bwcrypto.decrypt(enc_okey, token["orgs_key"])
+                except bwcrypto.DecryptError:
+                    self.broken_objs[orga.id] = enc_okey
+                ret = keys[orga.id] = enc_okey, okey
                 return ret
         exc = NoOrganizationKeyError(
             f"No encryption key for {orga.id}, please unlock or be confirmed"
@@ -1233,7 +1425,7 @@ class Client(object):
             key=k,
             method="put",
         )
-        cache_collection(obj)
+        self.cache(obj)
         return obj
 
     def create_orgcollection(
@@ -1256,26 +1448,25 @@ class Client(object):
     create_collection = create_orgcollection
     edit_collection = edit_orgcollection
 
-    def get_collections(self, scope=None, sync=None, cache=None, token=None):
+    def get_collections(self, orga=None, sync=None, cache=None, token=None):
         """
-        scope is either None for all or an orga(or orgaid)
+        orga is either None for all or an orga(or orgaid)
         """
         token = self.get_token(token)
-        if not scope:
-            sync_key = "all"
+        if not orga:
+            sync_key = SYNC_ALL_ORGAS_ID
         else:
-            orga = self.get_organization(scope)
-            sync_key = f"scope_{orga.id}"
-        _CACHE = CACHE["collections"]
+            orga = self.get_organization(orga)
+            sync_key = SYNC_ORGA_ID.format(orga.id)
+        _CACHE = self._cache["collections"]
         if sync is None:
             sync = False
         if cache is None:
             cache = True
-        if sync:
-            _CACHE.pop("raw", None)
         if cache is False or sync:
+            _CACHE["sync"] = False
             _CACHE.pop(sync_key, None)
-            _CACHE.pop("all", None)
+            _CACHE.pop(SYNC_ALL_ORGAS_ID, None)
         try:
             return _CACHE[sync_key]
         except KeyError:
@@ -1283,10 +1474,9 @@ class Client(object):
         #
         self.api_sync(sync=sync)
         #
-        ret = deepcopy(DEFAULT_CACHE)
         try:
-            ret = _CACHE["all"]
-        except KeyError:
+            assert _CACHE["sync"]
+        except AssertionError:
             for enccol in (
                 self.r("/api/collections", method="get").json().get("Data", [])
             ):
@@ -1294,16 +1484,18 @@ class Client(object):
                 _, colk = self.get_organization_key(col.organizationId, token=token)
                 col.name = bwcrypto.decrypt(col.name, colk).decode()
                 col.reflect()
-                ret = cache_collection(col)
+                self.cache_collection(col)
+            _CACHE["sync"] = True
         #
-        if scope:
-            orga = self.get_organization(scope)
+        if orga:
+            orga = self.get_organization(orga)
             for r in [
                 col
-                for col in _CACHE["all"]["id"].values()
+                for col in _CACHE[SYNC_ALL_ORGAS_ID]["id"].values()
                 if col.organizationId == orga.id
             ]:
-                ret = cache_collection(r, scope=sync_key)
+                self.cache_collection(r, cache_key=sync_key)
+        ret = self.cache_collection([], cache_key=sync_key)
         _CACHE[sync_key] = ret
         #
         return ret
@@ -1319,8 +1511,14 @@ class Client(object):
     ):
         criteria = [item_or_id_or_name, orga]
         token = self.get_token(token)
+        if orga:
+            orga = self.get_organization(orga, token=token)
         if isinstance(item_or_id_or_name, Collection):
-            return item_or_id_or_name
+            if not sync:
+                return item_or_id_or_name
+            else:
+                item_or_id_or_name = item_or_id_or_name.id
+                externalId = None
         _id = self.item_or_id(item_or_id_or_name)
         if collections is None:
             if orga is None:
@@ -1333,13 +1531,33 @@ class Client(object):
             )
             exc.criteria = criteria
             raise exc
+        if isinstance(_id, str):
+            _id = _id.lower()
+        if isinstance(externalId, str):
+            externalId = externalId.lower()
         if _id:
             try:
                 return collections["id"][_id]
-            except KeyError:
+            except (KeyError, IndexError):
                 pass
             try:
-                return collections["name"][_id]
+                items = collections["name"][_id]
+                if orga:
+                    items = OrderedDict(
+                        [
+                            (k, v)
+                            for k, v in items.items()
+                            if v.organizationId == orga.id
+                        ]
+                    )
+                if len(items) > 1:
+                    exc = NoSingleCollectionForNameError(
+                        f"More that one collection with {_id} name."
+                    )
+                    exc.instance = items
+                    raise exc
+                for a, v in items.items():
+                    return v
             except KeyError:
                 pass
         if externalId:
@@ -1347,7 +1565,10 @@ class Client(object):
                 return collections["externalId"][externalId]
             except KeyError:
                 pass
-        exc = CollectionNotFound(f"No such collection found {_id}/{externalId}")
+        log = f"No such collection found {_id}/{externalId}"
+        if orga:
+            log += f" in orga: {orga.id}/{orga.name}"
+        exc = CollectionNotFound(log)
         exc.criteria = [_id, externalId, orga]
         raise exc
 
@@ -1421,7 +1642,7 @@ class Client(object):
     ):
         vaultier = self.get_vaultier(vaultier)
         token = self.get_token(token=token)
-        scache = CACHE["ciphers"]
+        scache = self._cache["ciphers"]
         if sync or cache is False:
             scache.pop("sync", None)
         if orga:
@@ -1453,7 +1674,7 @@ class Client(object):
                     L.info(f'Cant decrypt cipher {cipher["Id"]}, broken ?')
             for cipher in dciphers:
                 obj = BWFactory.construct(cipher, client=self, unmarshall=True)
-                cache_cipher(obj, vaultier=vaultier)
+                self.cache(obj, vaultier=vaultier)
             scache["sync"] = True
         if collection:
             return scache["by_collection"].get(collection.id, {})
@@ -1582,7 +1803,7 @@ class Client(object):
             _, key = self.get_organization_key(oid)
         else:
             key = token["user_key"]
-        attachment_key = token_bytes(64)
+        attachment_key = secrets.token_bytes(64)
         encoded_attachment_key = bwcrypto.encrypt_sym(attachment_key, key)
         encoded_attachment_name = bwcrypto.encrypt_sym(fn, key)
         data = {"key": encoded_attachment_key}
@@ -1621,10 +1842,15 @@ class Client(object):
         token=None,
     ):
         if isinstance(item_or_id_or_name, Item):
-            return item_or_id_or_name
+            if not sync:
+                return item_or_id_or_name
+            else:
+                item_or_id_or_name = item_or_id_or_name.id
         vaultier = self.get_vaultier(vaultier)
         token = self.get_token(token)
         _id = f"{self.item_or_id(item_or_id_or_name)}"
+        if isinstance(_id, str):
+            _id = _id.lower()
         ret = None
         if collection:
             collection = self.get_collection(
@@ -1636,7 +1862,7 @@ class Client(object):
         )
         if vaultier:
             try:
-                ret = [s["vaultier"][_id]]
+                ret = [s["vaultiersecretid"][_id]]
             except KeyError:
                 pass
         if not ret:
@@ -1759,7 +1985,7 @@ class Client(object):
         kw["link"] = False
         return self.link(*a, **kw)
 
-    def delete(self, obj, typ=None, token=None):
+    def delete(self, obj, typ=None, token=None, **kw):
         token = self.get_token(token)
         if not typ:
             objtyp = get_type(obj)
@@ -1778,8 +2004,8 @@ class Client(object):
             name = sid
         assert _id
         data = {"masterPasswordHash": self.token["hashed_password"].decode()}
-        self.uncache(typ=typ, _id=_id, obj=obj)
         ret = {}
+        self.uncache(typ=typ, ids=_id, **kw)
         resp = self.r(f"/api/{typ}s/{_id}", token=token, method="delete", json=data)
         try:
             self.assert_bw_response(resp, expected_status_codes=[200, 404])
@@ -1791,29 +2017,39 @@ class Client(object):
             raise exc
         return ret
 
-    def uncache(self, typ=None, _id=None, obj=None):
-        ids = set()
-        assert typ or obj
+    def uncache(self, typ=None, ids=None, obj=None, cache=None, grandcaches=None, **kw):
+        if grandcaches is None:
+            grandcaches = []
+        if cache is None:
+            try:
+                assert typ or ids or (obj and isinstance(obj, BWFactory))
+            except AssertionError:
+                raise BitwardenUncacheError("neither cache or typ or id or obj or ids")
+        if not isinstance(ids, set):
+            ids = ids is not None and set(ids) or set()
+        if cache is None:
+            if isinstance(obj, BWFactory) and not typ:
+                typ = TYPMAPPER[get_type(obj, typ)].lower()
+            cache = self._cache[COLTYPMAPPER[typ]]
+        try:
+            assert cache is not None
+        except AssertionError:
+            raise BitwardenUncacheError("no cache selected")
         if isinstance(obj, BWFactory):
-            objtyp = get_type(obj, typ)
-            typ = TYPMAPPER.get(objtyp, "")
-        typ = typ.lower()
-        if _id:
-            ids.add(_id)
-        if obj:
             ids.add(obj.id)
-        if typ == "organization":
-            for u in ids:
-                CACHE["okeys"].pop(u, None)
-        caches = get_reverse_cache().get(typ, [])
-        if ids and caches:
-            for cache in caches:
-                # cache.pop(id_, None)
-                rcache = dict([(o.id, k) for k, o in cache.items()])
-                try:
-                    cache.pop(rcache[_id], None)
-                except KeyError:
-                    pass
+        if not ids:
+            _ = [ids.add(i) for i in cache.get("id", {})]
+        grandcaches.append(cache)
+        for k in [a for a in cache]:
+            subval = cache[k]
+            if isinstance(subval, dict):
+                self.uncache(
+                    ids=ids, typ=typ, cache=subval, grandcaches=grandcaches, **kw
+                )
+            elif isinstance(subval, BWFactory) and (subval.id in ids):
+                cache.pop(k, None)
+            elif k in ids:
+                cache.pop(k, None)
 
     def warm_templates(self):
         for i in ["collection", "org-collection", "item"]:
@@ -1840,52 +2076,54 @@ class Client(object):
             fic.write(data)
         return dest
 
-    def get_users(self, sync=None):
+    def get_users(self, sync=None, **kw):
         if sync is None:
             sync = False
-        cache = CACHE["users"]
+        cache = self._cache["users"]
         if sync:
-            pop_cache(cache)
+            cache.pop("sync", False)
         try:
-            cache["emails"]
-        except KeyError:
-            emails = cache.setdefault("emails", OrderedDict())
-            names = cache.setdefault("names", OrderedDict())
-            ids = cache.setdefault("ids", OrderedDict())
+            assert cache["sync"]
+        except (AssertionError, KeyError):
             resp = self.adminr("/users", method="get")
             self.assert_bw_response(resp, expected_status_codes=[200, 500])
             if resp.status_code in [500]:
-                pop_cache(cache)
+                self.uncache(cache, **kw)
                 json = []
             else:
                 json = resp.json()
             for user in json:
                 obj = BWFactory.construct(user, client=self, unmarshall=True)
-                emails[obj.email.lower()] = obj
-                names[obj.name.lower()] = obj
-                ids[obj.id.lower()] = obj
+                self.cache(obj)
+            cache["sync"] = True
         return cache
 
     def get_user(self, email=None, name=None, id=None, user=None, sync=None):
+        if email:
+            email = email.lower()
         if isinstance(user, Profile):
-            return user
+            if not sync:
+                return user
+            else:
+                id = user.id
+                email = name = user = None
         assert email or name or id
         cache = self.get_users(sync=sync)
         try:
             if not id:
                 raise KeyError()
-            return cache["ids"][id.lower()]
+            return cache["id"][id.lower()]
         except KeyError:
             try:
                 if not email:
                     raise KeyError()
-                return cache["emails"][email.lower()]
+                return cache["email"][email]
             except KeyError:
                 try:
                     if not name:
                         raise KeyError()
-                    return cache["names"][name.lower()]
-                except KeyError:
+                    return cache["name"][name.lower()][0]
+                except (IndexError, KeyError):
                     pass
         criteria = [email, name, id, user]
         exc = UserNotFoundError(f"user not found id:{id} / email:{email} / name:{name}")
@@ -1908,7 +2146,10 @@ class Client(object):
         try:
             expected_callback(response, *a, **kw)
         except Exception as orig_exc:
-            exc = ResponseError(str(orig_exc))
+            msg = str(orig_exc)
+            if not msg:
+                msg = f"{response.reason}\n{response.text}"
+            exc = ResponseError(msg)
             exc.response = response
             try:
                 jdata = response.json()
@@ -1946,19 +2187,17 @@ class Client(object):
         L.info(f"Disabled user {user.email} / {user.name} / {user.id}")
         return resp
 
-    def delete_user(self, email=None, name=None, id=None, user=None, sync=True):
+    def delete_user(self, email=None, name=None, id=None, user=None, sync=True, **kw):
         user = self.get_user(email=email, name=name, id=id, user=user, sync=sync)
         resp = self.adminr(f"/users/{user.id}/delete")
         self.post_user_request(resp)
+        self.uncache(obj=user, **kw)
         L.info(f"Deleted user {user.email} / {user.name} / {user.id}")
         return resp
 
     def validate(self, email, password=None, id=None, name=None, sync=None, token=None):
         token = self.get_token(token=token)
-        if not self.private_key:
-            exc = BitwardenValidateError("no bitwarden server private key")
-            exc.email = email
-            raise exc
+        self.ensure_private_key()
         user = self.get_user(email=email, name=name, id=id, sync=sync)
         if not user.emailVerified:
             now = int(time())
@@ -2091,15 +2330,838 @@ class Client(object):
             ret.append(obj)
         return ret[0:limit]
 
-    def warm(self, sync=True):
-        ciphers = self.get_ciphers(sync=sync)
-        orgas = self.get_organizations(sync=sync)
-        collections = self.get_collections(sync=sync)
-        return ciphers, collections, orgas
+    def warm(self, sync=None, collections=None, users=None, ciphers=None, orgas=None):
+        if (
+            sync is None
+            and collections is None
+            and ciphers is None
+            and orgas is None
+            and users is None
+        ):
+            sync = True
+        if sync is not None:
+            collections = ciphers = users = orgas = sync
+        ret = dict(
+            users=self.get_users(sync=users),
+            ciphers=self.get_ciphers(sync=ciphers),
+            orgas=self.get_organizations(sync=orgas),
+            collections=self.get_collections(sync=collections),
+        )
+        return ret
+
+    def bust_cache(self):
+        for k in [a for a in self._cache]:
+            val = self._cache[k]
+            self._cache[k] = 0
+            del val
+            self._cache.pop(k, None)
+            self._cache.update(deepcopy(DEFAULT_BITWARDEN_CACHE))
+
+    def get_accesses(self, objs, sync=None, token=None):
+        """
+        Can be called with those forms:
+            get_accesses(c)
+                    => return accesses in Collection c
+            get_accesses(o)
+                    => return accesses in Organization o
+            get_accesses({"user": u, "orga": o})
+                    => return the access for u in orga o
+            get_accesses({"user": u, "collection": c})
+                    => will return the orga access (not scopped to col)
+                       (equivalent to get_accesses({"user": u, "orga": c.organizationId})
+        objs can be either a single element or a list of elements
+        return will be either a single access dicts, or a list of access dicts:
+           {
+                "emails": emails,      => indexed by emails: userorg ids
+                "emailsr": emailsr,    => indexed by userorgids: emails
+                "daccessr": daccessr,  => indexed by emails accesses
+                                            for an org: list of cols,
+                                            for a col: list of orgusers,
+                                            for a user: list of cols
+                "daccess": daccess,    => indexed by uuid accesses
+                                            for an org: list of cols,
+                                            for a col: list of orgusers,
+                                            for a user: list of cols
+                "acls": access,        => list of access (either collections for a user
+                                            or users for an org or a collection)
+                "access": access,      => raw accesses returned by API
+                                            for an org: orgitemdetails,
+                                            for a col: orgcol details
+                                            for a user: userorgdetails
+                "oaccess": oaccess,    => for a user or collection: relative orga access
+                "raw": resp,
+                "exception": exc,      => if an exception is raised: the exc object
+            }
+        """
+        if sync is None:
+            # XXX: maybe we will implement cache at a later time
+            sync = True
+        token = self.get_token(token)
+        ret, single = OrderedDict(), False
+        if not isinstance(objs, (list, set, tuple)):
+            single = True
+            objs = [objs]
+        for o in objs:
+            is_user = isinstance(o, dict)
+            daccess, daccessr, oaccess, emails, emailsr = (
+                OrderedDict(),
+                OrderedDict(),
+                None,
+                {},
+                {},
+            )
+            if not isinstance(o, (Collection, Organization, dict)):
+                exc = BitwardenInvalidInput(
+                    "One or more Inputs are not neither a collection or an organization or a dict"
+                )
+                exc.inputs = objs
+                raise exc
+            email = None
+            if isinstance(o, Organization):
+                orga = o
+                objid = o.id
+                u = f"/api/organizations/{o.id}/users"
+            elif isinstance(o, Collection):
+                objid = o.id
+                orga = self.get_organization(o.organizationId, token=token)
+                u = f"/api/organizations/{o.organizationId}/collections/{o.id}/users"
+            elif is_user:
+                email = o["user"]
+                if isinstance(email, Profile):
+                    email = email.email
+                try:
+                    orga = self.get_organization(o["orga"], token=token)
+                except KeyError:
+                    orga = self.get_organization(
+                        self.get_collection(o["collection"], token=token).organizationId
+                    )
+                objid = f"{email}--{orga.id}"
+            if not isinstance(o, Organization):
+                try:
+                    oaccess = ret[orga.id]
+                except KeyError:
+                    oaccess = self.get_accesses(orga, token=token)
+
+            if is_user:
+                try:
+                    ouid = oaccess["emails"][email]
+                except KeyError:
+                    exc = NoAccessError(
+                        f"{email} has no access to {orga.name}/{orga.id}"
+                    )
+                    raise exc
+                u = f"/api/organizations/{orga.id}/users/{ouid}"
+            resp = self.r(u, token=token, method="get", json={})
+            try:
+                self.assert_bw_response(resp)
+                access, exc = resp.json(), None
+            except ResponseError as exc:
+                access, exc = None, exc
+            access, acls = rewrite_acls_collection(access), []
+            if isinstance(o, Collection):
+                # collections call returns a list of user acls
+                acls = access
+            if isinstance(access, dict):
+                if is_user:
+                    emails[email] = ouid
+                    emailsr[ouid] = email
+                    acls = access.get("collections", [])
+                else:
+                    acls = access.get("data", [])
+            if acls:
+                for i in acls:
+                    if isinstance(o, Organization):
+                        email = i["email"]
+                        emails[email] = i["id"]
+                        emailsr[i["id"]] = email
+                    if isinstance(o, Collection):
+                        email = oaccess["emailsr"][i["id"]]
+                        emails[email] = i["id"]
+                        emailsr[i["id"]] = email
+                    if not is_user:
+                        daccessr[i["id"]] = i
+                        daccess[email] = i
+                    else:
+                        daccessr[i["id"]] = i
+                        daccess.setdefault(email, OrderedDict())[i["id"]] = i
+            ret[objid] = {
+                "emails": emails,
+                "emailsr": emailsr,
+                "daccessr": daccessr,
+                "daccess": daccess,
+                "access": access,
+                "acls": acls,
+                "oaccess": oaccess,
+                "raw": resp,
+                "exception": exc,
+            }
+        if single:
+            for i in ret:
+                return ret[i]
+        return ret
+
+    def remove_user_from_collection(self, emails_or_users, collections, token=None):
+        ret = {}
+        token = self.get_token(token)
+        if not isinstance(collections, (list, tuple, set)):
+            collections = [collections]
+        if not isinstance(emails_or_users, (list, tuple, set)):
+            emails_or_users = [emails_or_users]
+        for u in emails_or_users:
+            email, done = u, None
+            if isinstance(email, Profile):
+                email = email.email
+            ret[email] = {}
+            for collection in collections:
+                collection = self.get_collection(collection, token=token)
+                orga = self.get_organization(collection.organizationId, token=token)
+                # if we get multiple emails/users with same id, be sure to refresh access every round
+                access = self.get_accesses(collection, sync=True, token=token)
+                emails = access["emails"]
+                try:
+                    iid = emails[email]
+                except KeyError:
+                    pass
+                else:
+                    newaccess = [a for a in access["acls"] if a["id"] != iid]
+                    u = f"/api/organizations/{orga.id}/collections/{collection.id}/users"
+                    done = self.r(u, method="put", json=newaccess, token=token)
+                    self.assert_bw_response(done)
+                ret[email][collection.id] = done
+        return ret
+
+    def remove_user_from_organization(self, emails_or_users, orgas, token=None):
+        ret = {}
+        token = self.get_token(token)
+        if not isinstance(orgas, (list, tuple, set)):
+            orgas = [orgas]
+        for email in get_emails(emails_or_users):
+            done = None
+            ret[email] = {}
+            for orga in orgas:
+                orga = self.get_organization(orga, token=token)
+                # if we get multiple emails/users with same id, be sure to refresh access every round
+                access = self.get_accesses(orga, sync=True, token=token)
+                emails = access["emails"]
+                try:
+                    iid = emails[email]
+                except KeyError:
+                    pass
+                else:
+                    u = f"/api/organizations/{orga.id}/users/{iid}"
+                    done = self.r(u, method="delete", token=token)
+                    self.assert_bw_response(done)
+                ret[email][orga.id] = done
+                return ret
+
+    def _orga_args(
+        self,
+        token=None,
+        access_level=None,
+        sync=None,
+        remove=None,
+        accessAll=None,
+        collections=None,
+        permissions=None,
+    ):
+        token = self.get_token(token)
+        if collections:
+            if not isinstance(collections, (list, set, tuple)):
+                collections = [collections]
+        if access_level is None:
+            access_level = CollectionAccess.user
+        if accessAll is None:
+            if collections:
+                accessAll = False
+            else:
+                accessAll = access_level in (
+                    CollectionAccess.owner,
+                    CollectionAccess.admin,
+                )
+        if not isinstance(permissions, dict):
+            permissions = {}
+        for permission, v in ORGA_PERMISSIONS.items():
+            permissions.setdefault(permission, v)
+        for p in [a for a in permissions]:
+            try:
+                ORGA_PERMISSIONS[p]
+            except KeyError:
+                permissions.pop(p, None)
+        if sync:
+            self.warm(collections=True, orgas=True)
+        if remove is None:
+            remove = False
+        return token, access_level, accessAll, permissions, remove, collections
+
+    def add_user_to_organization(
+        self,
+        emails_or_users,
+        orga,
+        collections=None,
+        token=None,
+        sync=None,
+        access_level=None,
+        permissions=None,
+        accessAll=None,
+        readonly=False,
+        hidepasswords=False,
+    ):
+        """
+        emails_or_users: email or Profile to set access to
+        accessAll: access all collections configuration knob
+        readonly: global readonly setting for the call if unset specifically for a collection
+        hidePasswords: global readonly setting for the call if unset specifically for a collection
+        access_level (see bwclient.CollectionAccess for a readable enum: int for level access)
+                (eg access_level=CollectionAccess.admin)
+        collections: [list]
+            items are  either:
+                - collection
+                - collectionId
+                - a dict: {collection: col_or_id, [opt] readOnly: True/False, [opt] hidePasswords: True/False}
+                - examples:
+                    - Uu-ID-xx-xx
+                    - Collection(...)
+                    - {'collection': "U-U-I-D", readOnly: True, 'hidePasswords': False}
+                    - {'collection': CollectionObj, readOnly: True, 'hidePasswords': False}
+        permissions permissions have no effect for now, only global setting
+                    owner/admin/manager/user ditacte what the ACLs are.
+        """
+        (
+            token,
+            access_level,
+            accessAll,
+            permissions,
+            remove,
+            collections,
+        ) = self._orga_args(
+            token=token,
+            access_level=access_level,
+            accessAll=accessAll,
+            sync=sync,
+            collections=collections,
+            permissions=permissions,
+        )
+        orga = self.get_organization(orga, token=token)
+        params = {
+            "emails": get_emails(emails_or_users),
+            "accessAll": accessAll,
+            "type": access_level,
+            "permissions": permissions,
+            "collections": None,
+        }
+        if not accessAll:
+            orga = self.get_organization(orga, token=token, sync=sync)
+            dcollections = self.collections_to_payloads(
+                collections, orga=orga, token=token
+            )
+            params["collections"] = self.compute_accesses(
+                dcollections, readonly=readonly, hidepasswords=hidepasswords
+            )["payloads"]
+        u = f"/api/organizations/{orga.id}/users/invite"
+        response = self.r(u, json=params, token=token)
+        self.assert_bw_response(response)
+        return response
+
+    def set_organization_access(
+        self,
+        emails_or_users,
+        orga,
+        collections=None,
+        token=None,
+        sync=None,
+        access_level=None,
+        remove=False,
+        permissions=None,
+        accessAll=None,
+        readonly=None,
+        hidepasswords=None,
+    ):
+        """
+        Variant to create or update organization at a USER level: manage it's type, and it's collections
+        email: email or Profile to set access to
+        accessAll: access all collections configuration knob
+        readonly: global readonly setting for the call if unset specifically for a collection
+        hidePasswords: global readonly setting for the call if unset specifically for a collection
+        access_level (see bwclient.CollectionAccess for a readable enum: int for level access)
+                (eg access_level=CollectionAccess.admin)
+        collections: [list]
+            items are  either:
+                - collection
+                - collectionId
+                - a dict: {collection: col_or_id, [opt] readOnly: True/False, [opt] hidePasswords: True/False}
+                - examples:
+                    - Uu-ID-xx-xx
+                    - Collection(...)
+                    - {'collection': "U-U-I-D", readOnly: True, 'hidePasswords': False}
+                    - {'collection': CollectionObj, readOnly: True, 'hidePasswords': False}
+        permissions permissions have no effect for now, only global setting
+                    owner/admin/manager/user ditacte what the ACLs are.
+        """
+        (
+            token,
+            access_level,
+            accessAll,
+            permissions,
+            remove,
+            collections,
+        ) = self._orga_args(
+            token=token,
+            access_level=access_level,
+            accessAll=accessAll,
+            remove=remove,
+            sync=sync,
+            collections=collections,
+            permissions=permissions,
+        )
+        payloads = OrderedDict()
+        orga = self.get_organization(orga, token=token, sync=sync)
+        dcollections = self.collections_to_payloads(collections, orga=orga, token=token)
+        for email in get_emails(emails_or_users):
+            todo = False
+            try:
+                uacl = self.get_accesses({"user": email, "orga": orga})
+            except NoAccessError:
+                self.add_user_to_organization(
+                    email,
+                    orga,
+                    collections=collections,
+                    token=token,
+                    sync=sync,
+                    access_level=access_level,
+                    permissions=permissions,
+                    accessAll=accessAll,
+                    readonly=readonly,
+                    hidepasswords=hidepasswords,
+                )
+                uacl = self.get_accesses({"user": email, "orga": orga})
+            uaccess = uacl["access"]
+            ouid = uaccess["id"]
+            todo = uaccess["type"] != access_level or uaccess["accessAll"] != accessAll
+            # skip access setup for user which has accessAll set
+            if uaccess["accessAll"] and not todo:
+                L.debug(
+                    f"{email} has already global access to collections, skip specific access setup"
+                )
+                continue
+            payload = {
+                "orga": orga,
+                "email": email,
+                "ouid": ouid,
+                "removed": set(),
+                "payload": {
+                    "accessAll": accessAll,
+                    "type": access_level,
+                    "permissions": permissions,
+                    "collections": deepcopy(uacl["acls"]),
+                },
+            }
+            pid = ouid
+            for cid, cdata in dcollections.items():
+                collection = cdata["collection"]
+                if collection.organizationId != orga.id:
+                    L.debug(f"collection {collection.name} is not in orga: {orga.name}")
+                    continue
+                # set access on subsequent collections
+                cremove = cdata.get("remove", remove)
+                if cremove:
+                    try:
+                        uacl["daccess"][email][cid]
+                    except KeyError:
+                        L.info(
+                            f"{email} has no access to collection {collection.name}/{collection.id}, no removal"
+                        )
+                    else:
+                        L.info(f"Removing {cid} from {email} collections")
+                        todo = True
+                        payload["removed"].add(cid)
+                        payload["payload"]["collections"] = list(
+                            filter(
+                                lambda a: a["id"] != cid,
+                                payload["payload"]["collections"],
+                            )
+                        )
+                else:
+                    try:
+                        caccess = uacl["daccess"][email]
+                    except KeyError:
+                        ro = bool(cdata.get("readOnly", readonly))
+                        hp = bool(cdata.get("hidePasswords", hidepasswords))
+                        L.info(
+                            f"Adding {email} to collection {collection.name}/{collection.id}"
+                        )
+                        payload["payload"]["collections"].append(
+                            {"id": cid, "hidePasswords": hp, "readOnly": ro}
+                        )
+                        todo = True
+                    else:
+                        if readonly is not None:
+                            ro = readonly
+                        else:
+                            ro = caccess.get("readOnly", False)
+                        if hidepasswords is not None:
+                            hp = hidepasswords
+                        else:
+                            hp = caccess.get("hidePasswords", False)
+                        ro = bool(cdata.get("readOnly", ro))
+                        hp = bool(cdata.get("hidePasswords", hp))
+                        aperm = [
+                            a
+                            for a in payload["payload"]["collections"]
+                            if a["id"] == cid
+                        ]
+                        if aperm:
+                            aperm = aperm[0]
+                            if (aperm["readOnly"] == ro) and (
+                                aperm["hidePasswords"] == hp
+                            ):
+                                log = f"Access In place {email}: collection {collection.name}/{collection.id}"
+                            else:
+                                log = f"Editing {email} access is in collection {collection.name}/{collection.id}"
+                                aperm["readOnly"], aperm["hidePasswords"] = ro, hp
+                                todo = True
+                            L.info(log)
+                        else:
+                            raise BitwardenError(
+                                "Acl mismatch for {email} in {orga.name}/{orga.id} / {collection.id}/{collection.name}"
+                            )
+            if todo:
+                payloads[pid] = payload
+        for ouid, cdata in payloads.items():
+            orga = cdata["orga"]
+            payload = cdata["payload"]
+            ouid = cdata["ouid"]
+            email = cdata["email"]
+            L.debug(f"Setting accesses for {orga.name}/{orga.id}/{email}")
+            u = f"/api/organizations/{orga.id}/users/{ouid}"
+            resp = self.r(u, json=payload, method="put")
+            self.assert_bw_response(resp)
+            cdata["response"] = resp
+        return payloads
+
+    def compute_accesses(
+        self, dcollections, remove=False, readonly=False, hidepasswords=False
+    ):
+        ret = {"payloads": [], "remove": []}
+        for cid, col in (dcollections or {}).items():
+            remove = col.get("remove", False)
+            k = remove and "remove" or "payloads"
+            ret[k].append(
+                {
+                    "id": col["collection"].id,
+                    "hidePasswords": bool(col.get("hidepasswords", hidepasswords)),
+                    "readOnly": bool(col.get("readOnly", readonly)),
+                }
+            )
+        return ret
+
+    def set_collection_access(
+        self,
+        emails_or_users,
+        collections=None,
+        readonly=False,
+        hidepasswords=False,
+        remove=None,
+        orga=None,
+        access_level=None,
+        accessAll=False,
+        permissions=None,
+        token=None,
+        sync=None,
+    ):
+        """
+        Variant to create or update organization collections access at a COLLECTION level
+        emails_or_users: email or Profile to set access to
+        readonly: global readonly setting for the call if unset specifically for a collection
+        remove: global readonly setting if user should be kicked/removed from the collection
+        hidepasswords: global readonly setting for the call if unset specifically for a collection
+        access_level (see bwclient.CollectionAccess for a readable enum: int for level access)
+                (eg access_level=CollectionAccess.admin)
+        collections: [list]
+            items are  either:
+                - collection
+                - collectionId
+                - a dict: {collection: col_or_id, [opt] readOnly: True/False, [opt] hidePasswords: True/False}
+                - examples:
+                    - Uu-ID-xx-xx
+                    - Collection(...)
+                    - {'collection': "U-U-I-D", readOnly: True, 'hidePasswords': False, remove: False}
+                    - {'collection': CollectionObj, readOnly: True, 'hidePasswords': False, remove: False}
+        orga (mostly never needed)
+            Indeed, the only case where you can need it is when collections are selected via their name,
+            orga should be set to select in the right orga.
+        forwarded to add_user_to_organization call [if needed]
+            access_level
+            accessAll
+            permissions
+        """
+        (
+            token,
+            access_level,
+            accessAll,
+            permissions,
+            remove,
+            collections,
+        ) = self._orga_args(
+            token=token,
+            access_level=access_level,
+            accessAll=accessAll,
+            remove=remove,
+            sync=sync,
+            collections=collections,
+            permissions=permissions,
+        )
+        if not (collections):
+            raise BitwardenError("Choose collections to add to")
+        dcollections = self.collections_to_payloads(collections, orga=orga, token=token)
+        payloads = OrderedDict()
+        for email in get_emails(emails_or_users):
+            for cid, cdata in dcollections.items():
+                collection = cdata["collection"]
+                # check & add user to orga if needed
+                orga = self.get_organization(collection.organizationId, token=token)
+                oaccess = self.get_accesses(orga, token=token)
+                try:
+                    uid = oaccess["emails"][email]
+                except KeyError:
+                    self.add_user_to_organization(
+                        email,
+                        orga=orga,
+                        accessAll=accessAll,
+                        permissions=permissions,
+                        token=token,
+                    )
+                    oaccess = self.get_accesses(orga, token=token)
+                    uid = oaccess["emails"][email]
+                # skip access setup for user which has accessAll set
+                oacl = oaccess["daccess"][email]
+                if oacl.get("accessAll", oacl.get("accessAll", False)):
+                    L.debug(
+                        f"{email} has already global access to collections, skip specific access setup"
+                    )
+                    continue
+                access = self.get_accesses(collection, token=token)
+                # set access on subsequent collections
+                cremove = cdata.get("remove", remove)
+                ro = bool(cdata.get("readOnly", readonly))
+                hp = bool(cdata.get("hidePasswords", hidepasswords))
+                acl = access["acls"]
+                default_payload = {
+                    "collection": collection,
+                    "ro": ro,
+                    "removed": set(),
+                    "hp": hp,
+                    "access": access,
+                    "acl": acl,
+                }
+                if cremove:
+                    try:
+                        access["emails"][email]
+                    except KeyError:
+                        L.info(
+                            f"{email} is not in collection {collection.name}/{collection.id}, no removal"
+                        )
+                    else:
+                        L.info(
+                            f"Removing {email} from collection {collection.name}/{collection.id}"
+                        )
+                        payload = payloads.setdefault(collection.id, default_payload)
+                        payload["removed"].add(email)
+                        acl = payload["acl"] = list(
+                            filter(lambda a: a["id"] != uid, payload["acl"])
+                        )
+                else:
+                    payload = payloads.get(collection.id, default_payload)
+                    try:
+                        access["emails"][email]
+                    except KeyError:
+                        L.info(
+                            f"Adding {email} to collection {collection.name}/{collection.id}"
+                        )
+                        acl.append({"id": uid, "hidePasswords": hp, "readOnly": ro})
+                        payloads[collection.id] = payload
+                    else:
+                        aperm = [a for a in acl if a["id"] == uid]
+                        if aperm:
+                            aperm = aperm[0]
+                            if (aperm["readOnly"] == ro) and (
+                                aperm["hidePasswords"] == hp
+                            ):
+                                log = f"Access In place {email}: collection {collection.name}/{collection.id}"
+                            else:
+                                log = f"Editing {email} access is in collection {collection.name}/{collection.id}"
+                                aperm["readOnly"], aperm["hidePasswords"] = ro, hp
+                                payloads[collection.id] = payload
+                            L.info(log)
+                        else:
+                            raise BitwardenError(
+                                "Acl mismatch for {email} in {collection.id}/{collection.name}"
+                            )
+        for c, cdata in payloads.items():
+            c = cdata["collection"]
+            payload = cdata["acl"]
+            L.debug(f"Setting accesses for {c.name}/{c.id}")
+            u = f"/api/organizations/{c.organizationId}/collections/{c.id}/users"
+            resp = self.r(u, json=payload, method="put")
+            self.assert_bw_response(resp)
+            cdata["response"] = resp
+        return payloads
+
+    def collections_to_payloads(self, collections, orga=None, token=None):
+        token = self.get_token(token)
+        colexc = []
+        dcollections = {}
+        if collections:
+            if isinstance(collections, (str, Collection)):
+                collections = [collections]
+            if not isinstance(collections, (str, list, tuple, set)):
+                exc = BitwardenInvalidInput("collections is invalid")
+                exc.inputs = [collections]
+                raise exc
+            colexc = BitwardenInvalidInput("collection item is invalid")
+            colexc.inputs = []
+            for i in collections:
+                if isinstance(i, (str, Collection)):
+                    data = {"collection": i}
+                elif isinstance(i, dict):
+                    data = i
+                else:
+                    colexc.inputs.append((i, orga))
+                    continue
+                col = data["collection"] = self.get_collection(
+                    data["collection"], orga=orga, token=token
+                )
+                dcollections.setdefault(col.id, {}).update(data)
+            if colexc.inputs:
+                raise colexc
+        return dcollections
+
+    def ensure_private_key(self):
+        if not self.private_key:
+            raise BitwardenValidateError("no bitwarden server private key")
+
+    def accept_invitation(self, orga, email, id=None, name=None, sync=None, token=None):
+        self.ensure_private_key()
+        token = self.get_token(token=token)
+        orga = self.get_organization(orga, token=token)
+        user = self.get_user(email=email, name=name, id=id, sync=sync)
+        email = user.email
+        oaccess = self.get_accesses(orga, token=token)
+        try:
+            acl = oaccess["daccess"][email]
+        except KeyError:
+            exc = InvitationAcceptError(f"{email} is not in organization {orga}")
+            exc.orga, exc.email = orga, email
+            raise exc
+        else:
+            # status: Invited = 0, Accepted = 1, Confirmed = 2,
+            if acl["status"] != 0:
+                exc = AlreadyInvitedError(
+                    f"{email} is already accepted in organization {orga}"
+                )
+                exc.orga, exc.email = orga, email
+                raise exc
+        now = int(time())
+        data = {
+            "nbf": now,
+            "exp": now + 432000,
+            "iss": f"{self.server}|invite",
+            "sub": user.id,
+            "email": email,
+            "org_id": orga.id,
+            "user_org_id": acl["id"],
+            "invited_by_email": self.email,
+        }
+        private_key = bwcrypto.load_rsa_key(self.private_key)
+        pem_private_key = private_key.exportKey("PEM")
+        jwt = jwt_encode(data, pem_private_key, algorithm="RS256")
+        payload = {"userId": user.id, "token": jwt}
+        try:
+            u = f"/api/organizations/{orga.id}/users/{acl['id']}/accept"
+            resp = self.r(u, json=payload, token=token)
+            self.assert_bw_response(resp)
+        except ResponseError as oexc:
+            exc = PostInvitedError("invitation response failed")
+            exc.email, exc.orga, exc.response = email, orga, oexc.response
+            raise exc
+        try:
+            oaccess = self.get_accesses(orga, token=token)
+            acl = oaccess["daccess"][email]
+            assert acl["status"] != 0
+        except AssertionError:
+            exc = PostInvitedError("invitation did not complete")
+            exc.email, exc.orga, exc.response = email, orga, resp
+            raise exc
+        L.info(
+            f"Accepted user {user.email} / {user.name} / {user.id} in orga {orga.name} / {orga.id}"
+        )
+        return acl
+
+    def confirm_invitation(
+        self, orga, email, id=None, name=None, sync=None, token=None
+    ):
+        self.ensure_private_key()
+        token = self.get_token(token=token)
+        orga = self.get_organization(orga, token=token)
+        orgkey = self.get_organization_key(orga, token=token)
+        user = self.get_user(email=email, name=name, id=id, sync=sync)
+        email = user.email
+        oaccess = self.get_accesses(orga, token=token)
+        try:
+            acl = oaccess["daccess"][email]
+        except KeyError:
+            exc = ConfirmationAcceptError(
+                f"{email} is not in organization {orga.name} / {orga.id}"
+            )
+            exc.orga, exc.email = orga, email
+            raise exc
+        else:
+            # status: Confirmed = 0, Confirmed = 1, Confirmed = 2,
+            if acl["status"] == 0:
+                log = f"{email} is not yet accepted in organization {orga.name} / {orga.id}"
+            elif acl["status"] == 2:
+                log = f"{email} is already confirmed in organization {orga.name} / {orga.id}"
+            else:
+                log = ""
+            if log:
+                exc = AlreadyConfirmedError(log)
+                exc.orga, exc.email = orga, email
+                raise exc
+        resp = self.r(f"/api/users/{user.id}/public-key", method="get")
+        self.assert_bw_response(resp)
+        userorgkey = b64decode(resp.json()["PublicKey"])
+        encoded_key = bwcrypto.encrypt_asym(orgkey[1], userorgkey)
+        payload = {"Key": encoded_key}
+        try:
+            u = f"/api/organizations/{orga.id}/users/{acl['id']}/confirm"
+            resp = self.r(u, json=payload, token=token)
+            self.assert_bw_response(resp)
+        except ResponseError as oexc:
+            exc = PostConfirmedError("confirmation response failed")
+            exc.email, exc.orga, exc.response = email, orga, oexc.response
+            raise exc
+        try:
+            oaccess = self.get_accesses(orga, token=token)
+            acl = oaccess["daccess"][email]
+            assert acl["status"] == 2
+        except AssertionError:
+            exc = PostConfirmedError("confirmation did not complete")
+            exc.email, exc.orga, exc.response = email, orga, resp
+            raise exc
+        L.info(
+            f"Confirmed user {user.email} / {user.name} / {user.id} in orga {orga.name} / {orga.id}"
+        )
+        return acl
 
 
-class AlreadyExitingUserError(RunError):
-    """."""
+def get_emails(emails_or_users):
+    emails = []
+    if not isinstance(emails_or_users, list):
+        emails_or_users = [emails_or_users]
+    for i in emails_or_users:
+        if isinstance(i, Profile):
+            i = i.email
+        emails.append(i)
+    return emails
 
 
 # vim:set et sts=4 ts=4 tw=120:
