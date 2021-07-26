@@ -3108,15 +3108,13 @@ class Client(object):
         )
         return acl
 
-    def confirm_invitation(
-        self, orga, email, id=None, name=None, sync=None, token=None
-    ):
-        self.ensure_private_key()
+    def confirm_invitation(self, orga, email, name=None, sync=None, token=None):
+        """
+        Just email is necessary to match users
+        """
         token = self.get_token(token=token)
         orga = self.get_organization(orga, token=token)
         orgkey = self.get_organization_key(orga, token=token)
-        user = self.get_user(email=email, name=name, id=id, sync=sync)
-        email = user.email
         oaccess = self.get_accesses(orga, token=token)
         try:
             acl = oaccess["daccess"][email]
@@ -3138,7 +3136,8 @@ class Client(object):
                 exc = AlreadyConfirmedError(log)
                 exc.orga, exc.email = orga, email
                 raise exc
-        resp = self.r(f"/api/users/{user.id}/public-key", method="get")
+        user_id = acl["userId"]
+        resp = self.r(f"/api/users/{user_id}/public-key", method="get")
         self.assert_bw_response(resp)
         userorgkey = b64decode(resp.json()["PublicKey"])
         encoded_key = bwcrypto.encrypt_asym(orgkey[1], userorgkey)
@@ -3159,9 +3158,7 @@ class Client(object):
             exc = PostConfirmedError("confirmation did not complete")
             exc.email, exc.orga, exc.response = email, orga, resp
             raise exc
-        L.info(
-            f"Confirmed user {user.email} / {user.name} / {user.id} in orga {orga.name} / {orga.id}"
-        )
+        L.info(f"Confirmed user {email} / {user_id} in orga {orga.name} / {orga.id}")
         return acl
 
 
