@@ -28,7 +28,7 @@ READMES = [
 long_description = "\n\n".join([read(a) for a in READMES])
 classifiers = ["Programming Language :: Python", "Topic :: Software Development"]
 name = "bitwardentools"
-version = "1.0.49"
+version = "1.0.50"
 src_dir = "src"
 req = re.compile("^(?!(-e|#))", flags=re.I | re.M)
 install_requires = [
