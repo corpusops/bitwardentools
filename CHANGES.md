@@ -1,6 +1,6 @@
 ## CHANGES
 
-### 1.0.50
+### 1.0.51
 - Do not need private key for confirming users
   [Didier 'OdyX' Raboud <didier.raboud@liip.ch>]
 ### 1.0.49
