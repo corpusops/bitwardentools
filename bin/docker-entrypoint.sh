@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -e
+rm -f /.started
 PYTHON=${PYTHON-python}
 
 NO_NVM_INSTALL=${NO_NVM_INSTALL-1}
@@ -119,6 +120,7 @@ fi
 
 execute_hooks post $@
 
+touch /.started
 if [[ -z $@ ]];then
     exec gosu $SHELL_USER bash -lic "$START_COMMAND"
 elif [[ "$@" == "shell" ]];then
