@@ -14,7 +14,7 @@ class TestBitwardenInteg(unittest.TestCase):
     useremail = f"{bwclient.EMAIL}SIMPLE"
     password = bwclient.PASSWORD
 
-    def _wipe(self):
+    def _wipe_objects(self):
         client = self.client
         for jsond in (
             {"name": "foo"},
@@ -36,11 +36,16 @@ class TestBitwardenInteg(unittest.TestCase):
                 except bwclient.DeleteError:
                     pass
 
+    def _wipe_users(self):
         for i in ["test@usr", "to@delete", bwclient.EMAIL]:
             try:
                 self.delete_user(i)
             except Exception:
                 pass
+
+    def _wipe(self):
+        self._wipe_objects()
+        self._wipe_users()
         self._done = False
 
     def tearDown(self):
@@ -57,6 +62,13 @@ class TestBitwardenInteg(unittest.TestCase):
         self.client = bwclient.Client(
             email=email, password=pw, private_key=private_key, login=False
         )
+        for i in 'foo', 'org', 'bar':
+            try:
+                self.client.get_organization(i)
+                self._wipe_objects()
+            except (bwclient.OrganizationNotFound, bwclient.LoginError):
+                continue
+            break
         self.setup_users()
         self._wipe()
 
