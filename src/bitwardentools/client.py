@@ -8,6 +8,7 @@ from __future__ import absolute_import, division, print_function
 
 import enum
 import json
+import itertools
 import os
 import re
 import traceback
@@ -160,6 +161,10 @@ class CliLoginError(LoginError, CliRunError):
 
 
 class DeleteError(BitwardenError):
+    """."""
+
+
+class ResponseError(BitwardenError):
     """."""
 
 
@@ -790,7 +795,7 @@ class Client(object):
                 method="get",
                 token=token,
             )
-            assert resp.status_code == 200
+            self.assert_bw_response(resp)
             _CACHE.update(resp.json())
             _CACHE[k] = True
         return _CACHE
@@ -909,7 +914,7 @@ class Client(object):
 
     def _upload_object(self, uri, data, key=None, log=None, method="post"):
         resp = self.r(uri, json=data, method=method)
-        assert resp.status_code == 200
+        self.assert_bw_response(resp)
         jsond = resp.json()
         if key:
             jsond = self.decrypt_item(jsond, key)
@@ -1427,7 +1432,7 @@ class Client(object):
         if isinstance(aid, dict):
             aid = aid["id"]
         res = self.r(f"/api/ciphers/{sec.id}/attachment/{aid}", method="delete")
-        assert res.status_code == 200
+        self.assert_bw_response(res)
         L.info('Deleted {attachment["fileName"]}/{attachment["id"]')
         return res
 
@@ -1514,7 +1519,7 @@ class Client(object):
                 data=data,
                 files=files,
             )
-        assert res.status_code == 200
+        self.assert_bw_response(res)
         return res
 
     def get_vaultier(self, vaultier):
@@ -1663,7 +1668,7 @@ class Client(object):
                     token=token,
                     json={"collectionIds": cipher.collectionIds},
                 )
-                assert res.status_code == 200
+                self.assert_bw_response(res)
         return ret
 
     def unlink(self, *a, **kw):
@@ -1693,7 +1698,7 @@ class Client(object):
         ret = {}
         resp = self.r(f"/api/{typ}s/{_id}", token=token, method="delete", json=data)
         try:
-            assert resp.status_code == 200
+            self.assert_bw_response(resp)
             L.info(f"Deleted {typ}: {_id}/{name}")
             ret.setdefault(typ, []).append(_id)
         except AssertionError:
@@ -1764,7 +1769,7 @@ class Client(object):
             names = cache.setdefault("names", OrderedDict())
             ids = cache.setdefault("ids", OrderedDict())
             resp = self.adminr("/users", method="get")
-            assert resp.status_code in [200, 500]
+            self.assert_bw_response(resp, expected_status_codes=[200, 500])
             if resp.status_code in [500]:
                 pop_cache(cache)
                 json = []
@@ -1800,8 +1805,43 @@ class Client(object):
                     pass
         raise UserNotFoundError(f"user not found id:{id} / email:{email} / name:{name}")
 
+    def assert_bw_response(
+        self, response, expected_status_codes=None, expected_callback=None, *a, **kw
+    ):
+        if not expected_status_codes:
+            expected_status_codes = [200]
+        if not isinstance(expected_status_codes, list):
+            expected_status_codes = [expected_status_codes]
+
+        def default_expected_callback(x, *fargs, **fkw):
+            assert x.status_code in expected_status_codes
+
+        expected_callback = expected_callback or default_expected_callback
+
+        try:
+            expected_callback(response, *a, **kw)
+        except Exception as orig_exc:
+            exc = ResponseError(str(orig_exc))
+            exc.response = response
+            try:
+                jdata = response.json()
+                exc = ResponseError(
+                    "\n".join(
+                        list(
+                            itertools.chain.from_iterable(
+                                jdata["ValidationErrors"].values()
+                            )
+                        )
+                    )
+                )
+                exc.orig_exc = exc
+                exc.response = response
+            except Exception:
+                pass
+            raise exc
+
     def post_user_request(self, resp, sync=True):
-        assert resp.status_code == 200
+        self.assert_bw_response(resp)
         # reload cached users
         return self.get_users(sync=sync)
 
