@@ -92,8 +92,9 @@ class BitwardenError(Exception):
     """."""
 
 
-class BitwardenValidateError(BitwardenError):
+class ResponseError(BitwardenError):
     """."""
+    response = None
 
 
 class UnimplementedError(BitwardenError):
@@ -104,15 +105,36 @@ class DecryptError(bwcrypto.DecryptError):
     """."""
 
 
-class OrganizationNotFound(KeyError):
+class SearchError(BitwardenError):
+    """."""
+    criteria = None
+
+
+class OrganizationNotFound(SearchError):
     """."""
 
 
-class CollectionNotFound(KeyError):
+class CollectionNotFound(SearchError):
     """."""
 
 
-class SecretNotFound(KeyError):
+class SecretNotFound(SearchError):
+    """."""
+
+
+class ColSecretsSearchError(SearchError):
+    """."""
+
+
+class SecretSearchError(SearchError):
+    """."""
+
+
+class UserNotFoundError(SearchError):
+    """."""
+
+
+class ColSearchError(SearchError):
     """."""
 
 
@@ -120,52 +142,50 @@ class RunError(BitwardenError):
     """."""
 
 
-class CliRunError(BitwardenError):
-    """."""
-
-
-class ColSecretsSearchError(BitwardenError):
-    """."""
-
-
-class SecretSearchError(BitwardenError):
-    """."""
-
-
-class UserNotFoundError(BitwardenError):
-    """."""
-
-
-class ColSearchError(BitwardenError):
-    """."""
-
-
 class NoOrganizationKeyError(BitwardenError):
     """."""
+    instance = None
 
 
 class NoSingleOrgaForNameError(BitwardenError):
     """."""
+    instance = None
 
 
 class NoAttachmentsError(BitwardenError):
     """."""
+    instance = None
 
 
-class LoginError(BitwardenError):
+class LoginError(ResponseError):
     """."""
+
+
+class DeleteError(ResponseError):
+    """."""
+
+
+class CiphersError(ResponseError):
+    pass
+
+
+class BitwardenValidateError(BitwardenError):
+    """."""
+    email = None
+
+
+class BitwardenPostValidateError(ResponseError, BitwardenValidateError):
+    """."""
+
+
+class CliRunError(BitwardenError):
+    """."""
+    process = None
 
 
 class CliLoginError(LoginError, CliRunError):
     """."""
-
-
-class DeleteError(BitwardenError):
-    """."""
-
-
-class ResponseError(BitwardenError):
-    """."""
+    process = None
 
 
 def _get_obj_type(t):
@@ -651,7 +671,7 @@ class Client(object):
         data = self.r("/identity/connect/token", token=False, data=loginpayload)
         if not data.status_code == 200:
             exc = LoginError(f"Failed login for {email}")
-            exc.resp = data
+            exc.response = data
             raise exc
         token = data.json()
         token["iterations"] = iterations
@@ -862,12 +882,16 @@ class Client(object):
         try:
             orgas = organizations["name"][_id]
             if len(orgas) > 1:
-                raise NoSingleOrgaForNameError(f"More that one orga with {_id} name.")
+                exc = NoSingleOrgaForNameError(f"More that one orga with {_id} name.")
+                exc.isntance = organizations
+                raise exc
             for a, v in orgas.items():
                 return self.finish_orga(v, token=token, cache=cache, complete=complete)
         except KeyError:
             pass
-        raise OrganizationNotFound(f"No such organization found {orga}")
+        exc = OrganizationNotFound(f"No such organization found {orga}")
+        exc.criteria = [orga]
+        raise exc
 
     def get_token(self, token=None):
         token = token or self.token
@@ -1129,9 +1153,11 @@ class Client(object):
                 okey = bwcrypto.decrypt(enc_okey, token["orgs_key"])
                 ret = CACHE["okeys"][orga.id] = enc_okey, okey
                 return ret
-        raise NoOrganizationKeyError(
+        exc = NoOrganizationKeyError(
             f"No encryption key for {orga.id}, please unlock or be confirmed"
         )
+        exc.instance = orga
+        raise exc
 
     def edit_orgcollection(self, collection, token=None, **jsond):
         """
@@ -1241,18 +1267,22 @@ class Client(object):
         orga=None,
         token=None,
     ):
+        criteria = [item_or_id_or_name, orga]
         token = self.get_token(token)
         if isinstance(item_or_id_or_name, Collection):
             return item_or_id_or_name
         _id = self.item_or_id(item_or_id_or_name)
         if collections is None:
             if orga is None:
-                raise ColSearchError("At least collections or orga/orgaid")
+                exc = ColSearchError("At least collections or orga/orgaid")
+                exc.criteria = criteria
             collections = self.get_collections(orga, sync=sync, token=token)
         if not (_id or externalId):
-            raise ColSearchError(
+            exc = ColSearchError(
                 "collectionsearch: At least id/item/name or externalId"
             )
+            exc.criteria = criteria
+            raise exc
         if _id:
             try:
                 return collections["id"][_id]
@@ -1267,7 +1297,9 @@ class Client(object):
                 return collections["externalId"][externalId]
             except KeyError:
                 pass
-        raise CollectionNotFound(f"No such collection found {_id}/{externalId}")
+        exc = CollectionNotFound(f"No such collection found {_id}/{externalId}")
+        exc.criteria = [_id, externalId, orga]
+        raise exc
 
     def decrypt(
         self, value, key=None, orga=None, token=None, recursion=None, dictkey=None
@@ -1350,7 +1382,16 @@ class Client(object):
             assert scache.get("sync")
         except AssertionError:
             self.api_sync(sync=sync, cache=cache)
-            ciphers = self.r("/api/ciphers", token=token, method="get").json()
+            try:
+                resp = self.r("/api/ciphers", token=token, method="get")
+                self.assert_bw_response(resp)
+                ciphers = resp.json()
+            except ResponseError:
+                raise
+            except json.JSONDecodeError:
+                exc = CiphersError("ciphers are not in json")
+                exc.response = resp
+                raise exc
             dciphers = []
             for cipher in ciphers.get("Data", []):
                 try:
@@ -1406,7 +1447,9 @@ class Client(object):
         try:
             return sec.attachments
         except AttributeError:
-            raise NoAttachmentsError()
+            exc = NoAttachmentsError()
+            exc.instance = sec
+            raise exc
 
     def delete_attachment(
         self,
@@ -1542,7 +1585,7 @@ class Client(object):
             return item_or_id_or_name
         vaultier = self.get_vaultier(vaultier)
         token = self.get_token(token)
-        id = f"{self.item_or_id(item_or_id_or_name)}"
+        _id = f"{self.item_or_id(item_or_id_or_name)}"
         ret = None
         if collection:
             collection = self.get_collection(
@@ -1554,17 +1597,17 @@ class Client(object):
         )
         if vaultier:
             try:
-                ret = [s["vaultier"][id]]
+                ret = [s["vaultier"][_id]]
             except KeyError:
                 pass
         if not ret:
             try:
-                ret = [s["id"][id]]
+                ret = [s["id"][_id]]
             except KeyError:
                 pass
         if not ret:
             try:
-                ret = s["name"][id].values()
+                ret = s["name"][_id].values()
             except KeyError:
                 pass
         if ret:
@@ -1575,7 +1618,7 @@ class Client(object):
             # try to search cipher in global if not found
             try:
                 return self.get_cipher(
-                    id,
+                    _id,
                     collections=collections,
                     orga=orga,
                     vaultier=vaultier,
@@ -1588,7 +1631,9 @@ class Client(object):
         collectionn = (
             isinstance(collection, Collection) and collection.name or collection
         )
-        raise SecretNotFound(f"No such cipher found {id} in collection {collectionn}")
+        exc = SecretNotFound(f"No such cipher found {_id} in collection {collectionn}")
+        exc .criteria = [_id, collection, orga]
+        raise exc
 
     def patch(self, *args, **kw):
         return BWFactory.patch(self, *args, **kw)
@@ -1703,7 +1748,7 @@ class Client(object):
             ret.setdefault(typ, []).append(_id)
         except AssertionError:
             exc = DeleteError(f"delete error {typ}: {_id}/{name}")
-            exc.ret = resp
+            exc.response = resp
             raise exc
         return ret
 
@@ -1803,7 +1848,10 @@ class Client(object):
                     return cache["names"][name.lower()]
                 except KeyError:
                     pass
-        raise UserNotFoundError(f"user not found id:{id} / email:{email} / name:{name}")
+        criteria = [email, name, id, user]
+        exc = UserNotFoundError(f"user not found id:{id} / email:{email} / name:{name}")
+        exc.criteria = criteria
+        raise exc
 
     def assert_bw_response(
         self, response, expected_status_codes=None, expected_callback=None, *a, **kw
@@ -1869,7 +1917,9 @@ class Client(object):
     def validate(self, email, password=None, id=None, name=None, sync=None, token=None):
         token = self.get_token(token=token)
         if not self.private_key:
-            raise BitwardenValidateError("no bitwarden server private key")
+            exc = BitwardenValidateError("no bitwarden server private key")
+            exc.email = email
+            raise exc
         user = self.get_user(email=email, name=name, id=id, sync=sync)
         if not user.emailVerified:
             now = int(time())
@@ -1883,10 +1933,22 @@ class Client(object):
             pem_private_key = private_key.exportKey("PEM")
             jwt = jwt_encode(data, pem_private_key, algorithm="RS256")
             payload = {"userId": user.id, "token": jwt}
-            resp = self.r("/api/accounts/verify-email-token", json=payload, token=token)
-            self.post_user_request(resp)
-            user = self.get_user(email=user.email, sync=True)
-            assert user.emailVerified
+            try:
+                resp = self.r("/api/accounts/verify-email-token", json=payload, token=token)
+                self.post_user_request(resp)
+            except ResponseError as oexc:
+                exc = BitwardenPostValidateError('validation response failed')
+                exc.email = email
+                exc.response = oexc.response
+                raise exc
+            try:
+                user = self.get_user(email=user.email, sync=True)
+                assert user.emailVerified
+            except AssertionError:
+                exc = BitwardenPostValidateError('validation did not complete')
+                exc.email = email
+                exc.response = resp
+                raise exc
         L.info(f"Validated user {user.email} / {user.name} / {user.id}")
         return user
 
