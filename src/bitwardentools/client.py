@@ -641,7 +641,15 @@ class Client(object):
             if record:
                 self.token = token
             headers.update({"Authorization": f"Bearer {token['access_token']}"})
-        return getattr(requests, method.lower())(url, headers=headers, *a, **kw)
+        resp = getattr(requests, method.lower())(url, headers=headers, *a, **kw)
+        if resp.status_code in [401] and token is not False:
+            L.debug(f"Access denied, trying to retry after refreshing token for {token['email']}")
+            ntoken = self.login(token['email'], token['password'])
+            if record and (token is self.token):
+                self.token = ntoken
+            headers.update({"Authorization": f"Bearer {ntoken['access_token']}"})
+            resp = getattr(requests, method.lower())(url, headers=headers, *a, **kw)
+        return resp
 
     def login(
         self,
@@ -678,6 +686,7 @@ class Client(object):
         token["password"] = password
         token["hashed_password"] = hashed_password
         token["master_key"] = master_key
+        token["email"] = email
         for k, f in {"Key": "user_key", "PrivateKey": "orgs_key"}.items():
             key = k != "PrivateKey" and master_key or token.get("user_key")
             token[f] = bwcrypto.decrypt(token[k], key)
