@@ -1332,9 +1332,11 @@ class Client(object):
                 key = token["user_key"]
             if orga is None:
                 for i in "OrganizationId", "organizationId":
+                    if not value.get(i, None):
+                        continue
                     try:
                         orga = self.get_organization(value[i])
-                    except KeyError:
+                    except OrganizationNotFound:
                         pass
             if orga:
                 _, key = self.get_organization_key(orga)
