@@ -1000,7 +1000,7 @@ class Client(object):
             log = "{action} cipher: "
             key = token["user_key"]
 
-        login = jsond.get("login", {})
+        login = jsond.get("login", {}) or {}
         uris = login.get("uris")
         name = jsond.get("name", name)
         username = login.get("username", "")

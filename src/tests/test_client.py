@@ -297,7 +297,7 @@ class TestBitwardenInteg(unittest.TestCase):
         for i in (
             lambda: (
                 {"name": "aaa", "type": 0, "value": "aaa"}
-                == self.oseccard.card["fields"][0]
+                == self.oseccard.fields[0]
             ),
             lambda: (
                 False
