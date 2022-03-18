@@ -545,8 +545,28 @@ def get_reverse_cache():
 def add_cipher(ret, obj, vaultier=False):
     ret["id"][str(obj.id)] = obj
     ret["name"].setdefault(obj.name, {})[obj.id] = obj
-    if vaultier and obj.vaultiersecretid:
+    if vaultier and getattr(obj, 'vaultiersecretid', False):
         ret["vaultier"][str(obj.vaultiersecretid)] = obj
+
+
+def cache_cipher(r, vaultier=True):
+    scache = CACHE["ciphers"]
+    scache["raw"][r.id] = r
+    add_cipher(scache["by_cipher"], r, vaultier=vaultier)
+    for cid in getattr(r, "collectionIds"):
+        add_cipher(
+            scache["by_collection"].setdefault(cid, deepcopy(SECRET_CACHE)),
+            r,
+            vaultier=vaultier,
+        )
+    for oid in [a for a in [getattr(r, "organizationId")] if a]:
+        add_cipher(
+            scache["by_organization"].setdefault(
+                oid, deepcopy(SECRET_CACHE)
+            ),
+            r,
+            vaultier=vaultier,
+        )
 
 
 def cache_organization(r):
@@ -955,6 +975,16 @@ class Client(object):
         if not log:
             log = f"Created {obj.object}"
         log += f"{obj.id}"
+        if isinstance(obj, Collection):
+            cache_method = cache_collection
+        elif isinstance(obj, Organization):
+            cache_method = cache_organization
+        elif isinstance(obj, Item):
+            cache_method = cache_cipher
+        else:
+            cache_method = None
+        if cache_method:
+            cache_method(obj)
         L.info(log)
         return obj
 
@@ -989,6 +1019,9 @@ class Client(object):
         oid, suf = jsond.get("organizationId", None) or orga, ""
         token = self.get_token(token)
         collections = collections or []
+        for i in jsond.get('collectionIds', []) or []:
+            if i not in collections:
+                collections.append(i)
         actionpre = {"post": "creat", "put": "edit"}.get(method, method)
         if oid:
             orga = self.get_organization(oid, token=token)
@@ -1412,22 +1445,7 @@ class Client(object):
                     L.info(f'Cant decrypt cipher {cipher["Id"]}, broken ?')
             for cipher in dciphers:
                 obj = BWFactory.construct(cipher, client=self, unmarshall=True)
-                scache["raw"][obj.id] = obj
-                add_cipher(scache["by_cipher"], obj, vaultier=vaultier)
-                for cid in getattr(obj, "collectionIds"):
-                    add_cipher(
-                        scache["by_collection"].setdefault(cid, deepcopy(SECRET_CACHE)),
-                        obj,
-                        vaultier=vaultier,
-                    )
-                for oid in [a for a in [getattr(obj, "organizationId")] if a]:
-                    add_cipher(
-                        scache["by_organization"].setdefault(
-                            oid, deepcopy(SECRET_CACHE)
-                        ),
-                        obj,
-                        vaultier=vaultier,
-                    )
+                cache_cipher(obj, vaultier=vaultier)
             scache["sync"] = True
         if collection:
             return scache["by_collection"].get(collection.id, {})
