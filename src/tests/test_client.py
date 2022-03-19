@@ -17,16 +17,18 @@ class TestBitwardenInteg(unittest.TestCase):
     def _wipe_objects(self):
         client = self.client
         for jsond in (
-            {"name": "foo"},
             #
+            {"object": "organization", "name": "foo"},
             {"object": "organization", "name": "org"},
+            {"object": "organization", "name": "testorgp"},
             {"object": "organization", "name": "bar"},
             #
-            {"object": "organization", "name": "testorgp"},
             {"object": "collection", "name": "testcolp"},
             {"object": "collection", "name": "testcolp2"},
+            #
             {"object": "item", "name": "testitp"},
             #
+            {"object": "cipher", "name": "foo"},
             {"object": "cipher", "name": "secp"},
         ):
             objs = client.search(jsond)
@@ -62,7 +64,7 @@ class TestBitwardenInteg(unittest.TestCase):
         self.client = bwclient.Client(
             email=email, password=pw, private_key=private_key, login=False
         )
-        for i in 'foo', 'org', 'bar':
+        for i in 'foo', 'org', 'bar', 'testorgp':
             try:
                 self.client.get_organization(i)
                 self._wipe_objects()
@@ -182,15 +184,16 @@ class TestBitwardenInteg(unittest.TestCase):
             "name": "testcolp2",
             "organizationId": client.item_or_id(orga),
         }
+        col = client.create(**colp)
+        col2 = client.create(**colp2)
         cipherp = {
             "object": "item",
             "name": "testitp",
             "organizationId": orga.id,
             "notes": "supernote",
             "login": {"username": "alice", "password": "rabbit"},
+            "collectionIds": [col2.id],
         }
-        col = client.create(**colp)
-        col2 = client.create(**colp2)
         cipher = client.create(**cipherp)
         for i in orga, col, col2, cipher:
             self.assertTrue(i, bwclient.BWFactory)
