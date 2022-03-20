@@ -1772,8 +1772,8 @@ class Client(object):
         ret = {}
         resp = self.r(f"/api/{typ}s/{_id}", token=token, method="delete", json=data)
         try:
-            self.assert_bw_response(resp)
-            L.info(f"Deleted {typ}: {_id}/{name}")
+            self.assert_bw_response(resp, expected_status_codes=[200, 404])
+            L.info(f"Deleted or already removed {typ}: {_id}/{name}")
             ret.setdefault(typ, []).append(_id)
         except AssertionError:
             exc = DeleteError(f"delete error {typ}: {_id}/{name}")
