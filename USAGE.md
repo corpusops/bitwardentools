@@ -172,3 +172,11 @@ python src/bitwardentools/vaultier/invite.py
 python src/bitwardentools/vaultier/acls.py
 ```
 
+### Security note
+We provide a ``bitwardentools.client.bust_cache`` method to invalidate any cache in memory, please use it whenever you have finished to access your secrets.
+
+```python
+from bitwardentools.client import bust_cache
+bust_cache()
+```
+

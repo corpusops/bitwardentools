@@ -27,10 +27,10 @@ from bitwardentools.common import L
 
 VAULTIER_FIELD_ID = "vaultiersecretid"
 DEFAULT_CACHE = {"id": {}, "name": {}, "sync": False}
-SECRET_CACHE = {"id": {}, "name": {}, "vaultier": {}, "sync": []}
-CACHE = {
+SECRET_CACHE = {"id": {}, "name": {}, "vaultiersecretid": {}, "sync": []}
+DEFAULT_MODULE_CACHE = {
     "sync": {},
-    "users": {},
+    "users": deepcopy(DEFAULT_CACHE),
     "okeys": {},
     "templates": {},
     "organizations": deepcopy(DEFAULT_CACHE),
@@ -43,7 +43,7 @@ CACHE = {
         "by_organization": {},
     },
 }
-
+CACHE = deepcopy(DEFAULT_MODULE_CACHE)
 FILTERED_ATTRS = re.compile("^_|^vaultier|^json$")
 TYPES_MAPPING = {"org-collection": "orgcollection"}
 REVERSE_TYPES_MAPPING = dict([(v, k) for k, v in TYPES_MAPPING.items()])
@@ -150,10 +150,18 @@ class NoOrganizationKeyError(BitwardenError):
     instance = None
 
 
-class NoSingleOrgaForNameError(BitwardenError):
+class NoSingleItemForNameError(BitwardenError):
     """."""
 
     instance = None
+
+
+class NoSingleOrgaForNameError(NoSingleItemForNameError):
+    """."""
+
+
+class NoSingleCollectionForNameError(NoSingleItemForNameError):
+    """."""
 
 
 class NoAttachmentsError(BitwardenError):
@@ -530,7 +538,7 @@ def get_all_cached_items(subcache):
     for k in ("name",):
         for namevalue, items in subcache[k].items():
             values.append(items)
-    for k in "id", "vaultier":
+    for k in "id", "vaultiersecretid":
         try:
             values.append(subcache[k])
         except KeyError:
@@ -550,45 +558,64 @@ def get_reverse_cache():
     }
 
 
-def add_cipher(ret, obj, vaultier=False):
-    ret["id"][str(obj.id)] = obj
-    ret["name"].setdefault(obj.name, {})[obj.id] = obj
-    if vaultier and getattr(obj, "vaultiersecretid", False):
-        ret["vaultier"][str(obj.vaultiersecretid)] = obj
+def _cache_object(item, cache_key=None, cache=None, attributes=None, uniques=None, id_=None):
+    if cache is None:
+        cache = CACHE
+    if cache_key:
+        cache = cache[cache_key]
+    if not uniques:
+        uniques = ['id', 'externalId', 'vaultiersecretid']
+    if attributes is None:
+        attributes = ['id', 'name']
+    attributes = list(set(attributes + uniques))
+    if not id_:
+        id_ = item.id
+    for a in attributes:
+        if not hasattr(item, a):
+            continue
+        subcache = cache.setdefault(a, OrderedDict())
+        identifier = getattr(item, a)
+        if a in ['vaultiersecretid']:
+            identifier = str(identifier)
+        if isinstance(identifier, str):
+            identifier = identifier.lower()
+        if a in uniques:
+            if not identifier:
+                continue
+            subcache[identifier] = item
+        else:
+            items = subcache.setdefault(identifier, OrderedDict())
+            items[id_] = item
+    return cache
 
 
-def cache_cipher(r, vaultier=True):
-    scache = CACHE["ciphers"]
-    scache["raw"][r.id] = r
-    add_cipher(scache["by_cipher"], r, vaultier=vaultier)
-    for cid in getattr(r, "collectionIds"):
-        add_cipher(
-            scache["by_collection"].setdefault(cid, deepcopy(SECRET_CACHE)),
-            r,
-            vaultier=vaultier,
-        )
-    for oid in [a for a in [getattr(r, "organizationId")] if a]:
-        add_cipher(
-            scache["by_organization"].setdefault(oid, deepcopy(SECRET_CACHE)),
-            r,
-            vaultier=vaultier,
-        )
+def cache_user(r):
+    return _cache_object(r, cache_key="users", uniques=["id", "name", "email"])
 
 
 def cache_organization(r):
-    CACHE["organizations"].setdefault("id", {})[r.id] = r
-    CACHE["organizations"].setdefault("name", {}).setdefault(r.name, {})[r.id] = r
+    return _cache_object(r, "organizations")
 
 
 def cache_collection(r, scope="all"):
     if not isinstance(scope, dict):
         scope = CACHE["collections"].setdefault(scope, deepcopy(DEFAULT_CACHE))
-    scope["id"][r.id] = r
-    scope["name"][r.name] = r
-    ex = scope.setdefault("externalId", {})
-    if getattr(r, "externalId", None):
-        ex[r.externalId] = r
+    _cache_object(r, cache=scope)
     return scope
+
+
+def add_cipher(ret, obj, **kw):
+    _cache_object(obj, cache=ret)
+
+
+def cache_cipher(r, vaultier=True):
+    scache = CACHE["ciphers"]
+    scache["raw"][r.id] = r
+    _cache_object(r, cache=scache["by_cipher"])
+    for cid in getattr(r, "collectionIds"):
+        _cache_object(r, cache=scache["by_collection"].setdefault(cid, deepcopy(SECRET_CACHE)))
+    for oid in [a for a in [getattr(r, "organizationId")] if a]:
+        _cache_object(r, cache=scache["by_organization"].setdefault(oid, deepcopy(SECRET_CACHE)))
 
 
 class Client(object):
@@ -901,6 +928,8 @@ class Client(object):
         if isinstance(orga, Organization):
             return orga
         _id = self.item_or_id(orga)
+        if isinstance(_id, str):
+            _id = _id.lower()
         try:
             return self.finish_orga(
                 CACHE["organizations"]["id"][_id],
@@ -920,7 +949,7 @@ class Client(object):
             orgas = organizations["name"][_id]
             if len(orgas) > 1:
                 exc = NoSingleOrgaForNameError(f"More that one orga with {_id} name.")
-                exc.isntance = organizations
+                exc.instance = organizations
                 raise exc
             for a, v in orgas.items():
                 return self.finish_orga(v, token=token, cache=cache, complete=complete)
@@ -1333,13 +1362,23 @@ class Client(object):
             )
             exc.criteria = criteria
             raise exc
+        if isinstance(_id, str):
+            _id = _id.lower()
+        if isinstance(externalId, str):
+            externalId = externalId.lower()
         if _id:
             try:
                 return collections["id"][_id]
-            except KeyError:
+            except (KeyError, IndexError):
                 pass
             try:
-                return collections["name"][_id]
+                items = collections["name"][_id]
+                if len(items) > 1:
+                    exc = NoSingleCollectionForNameError(f"More that one collection with {_id} name.")
+                    exc.instance = items
+                    raise exc
+                for a, v in items.items():
+                    return v
             except KeyError:
                 pass
         if externalId:
@@ -1625,6 +1664,8 @@ class Client(object):
         vaultier = self.get_vaultier(vaultier)
         token = self.get_token(token)
         _id = f"{self.item_or_id(item_or_id_or_name)}"
+        if isinstance(_id, str):
+            _id = _id.lower()
         ret = None
         if collection:
             collection = self.get_collection(
@@ -1636,7 +1677,7 @@ class Client(object):
         )
         if vaultier:
             try:
-                ret = [s["vaultier"][_id]]
+                ret = [s["vaultiersecretid"][_id]]
             except KeyError:
                 pass
         if not ret:
@@ -1845,13 +1886,10 @@ class Client(object):
             sync = False
         cache = CACHE["users"]
         if sync:
-            pop_cache(cache)
+            cache.pop("sync", False)
         try:
-            cache["emails"]
-        except KeyError:
-            emails = cache.setdefault("emails", OrderedDict())
-            names = cache.setdefault("names", OrderedDict())
-            ids = cache.setdefault("ids", OrderedDict())
+            assert cache["sync"]
+        except (AssertionError, KeyError):
             resp = self.adminr("/users", method="get")
             self.assert_bw_response(resp, expected_status_codes=[200, 500])
             if resp.status_code in [500]:
@@ -1861,9 +1899,8 @@ class Client(object):
                 json = resp.json()
             for user in json:
                 obj = BWFactory.construct(user, client=self, unmarshall=True)
-                emails[obj.email.lower()] = obj
-                names[obj.name.lower()] = obj
-                ids[obj.id.lower()] = obj
+                cache_user(obj)
+            cache["sync"] = True
         return cache
 
     def get_user(self, email=None, name=None, id=None, user=None, sync=None):
@@ -1874,17 +1911,17 @@ class Client(object):
         try:
             if not id:
                 raise KeyError()
-            return cache["ids"][id.lower()]
+            return cache["id"][id.lower()]
         except KeyError:
             try:
                 if not email:
                     raise KeyError()
-                return cache["emails"][email.lower()]
+                return cache["email"][email.lower()]
             except KeyError:
                 try:
                     if not name:
                         raise KeyError()
-                    return cache["names"][name.lower()]
+                    return cache["name"][name.lower()]
                 except KeyError:
                     pass
         criteria = [email, name, id, user]
@@ -2092,14 +2129,26 @@ class Client(object):
         return ret[0:limit]
 
     def warm(self, sync=True):
-        ciphers = self.get_ciphers(sync=sync)
-        orgas = self.get_organizations(sync=sync)
-        collections = self.get_collections(sync=sync)
-        return ciphers, collections, orgas
+        ret = dict(
+            users=self.get_users(sync=sync),
+            ciphers=self.get_ciphers(sync=sync),
+            orgas=self.get_organizations(sync=sync),
+            collections=self.get_collections(sync=sync),
+        )
+        return ret
 
 
 class AlreadyExitingUserError(RunError):
     """."""
 
 
+def bust_cache(cache=None):
+    if cache is None:
+        cache = CACHE
+    for k in [a for a in cache]:
+        val = cache[k]
+        cache[k] = 0
+        del val
+        cache.pop(k, None)
+    cache.update(deepcopy(DEFAULT_MODULE_CACHE))
 # vim:set et sts=4 ts=4 tw=120:

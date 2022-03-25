@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import absolute_import, division, print_function
 
+import copy
 import os
 import unittest
 
@@ -361,6 +362,14 @@ class TestBitwardenInteg(unittest.TestCase):
         self.assertRaises(
             bwclient.UserNotFoundError, self.client.get_user, uid, sync=True
         )
+
+    def test_bust(self):
+        self.client.api_sync()
+        self.client.warm()
+        test_cache = copy.deepcopy(bwclient.CACHE)
+        bwclient.bust_cache()
+        self.assertFalse(len(bwclient.CACHE["users"]["id"]) > 0)
+        self.assertTrue(len(test_cache["users"]["id"]) > 0)
 
 
 if __name__ == "__main__":

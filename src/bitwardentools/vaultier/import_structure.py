@@ -38,14 +38,14 @@ def main(jsonf, server, email, password):
                 continue
             orga = {"bw": None, "vault": vdata, "name": v, "collections": OrderedDict()}
             try:
-                orgas_to_import[v]
+                orgas_to_import[v.lower()]
             except KeyError:
                 try:
                     orga["bw"] = client.get_organization(v)
                     L.info(f"Already created orga {v}")
                 except bwclient.OrganizationNotFound:
                     L.info(f"Will create orga: {v}")
-            orgas_to_import[v] = orga
+            orgas_to_import[v.lower()] = orga
             for cdata in vdata["cards"]:
                 c = sanitize(cdata["name"])
                 try:
@@ -61,10 +61,10 @@ def main(jsonf, server, email, password):
                     L.info(f"Already created {c}")
                 except (bwclient.CollectionNotFound, KeyError):
                     try:
-                        orga["collections"][c]
+                        orga["collections"][c.lower()]
                     except KeyError:
                         L.info(f"Will create {c} in orga: {v}")
-                        orga["collections"][c] = {"card": cdata, "name": c}
+                        orga["collections"][c.lower()] = {"card": cdata, "name": c}
             orga.setdefault("collection_name", v)
 
     constructed = OrderedDict()
@@ -98,7 +98,7 @@ def main(jsonf, server, email, password):
     items = []
     for i, o in orgas_to_import.items():
         for col, c in o["collections"].items():
-            items.append([client, i, o["bw"].id, col, c["card"]["id"], constructed])
+            items.append([client, i, o["bw"].id, col, c["card"], constructed])
     if parallel:
         with Pool(processes=processes) as pool:
             res = pool.starmap_async(record, items)
@@ -117,7 +117,7 @@ def record_orga(client, org, odata, email, constructed):
         ret = client.create(
             **{
                 "object": "organization",
-                "name": org,
+                "name": odata["name"],
                 "collection_name": odata["collection_name"],
                 "email": email,
             }
@@ -126,11 +126,11 @@ def record_orga(client, org, odata, email, constructed):
     return org, odata["bw"]
 
 
-def record(client, i, oid, col, c, constructed):
+def record(client, i, oid, col, card, constructed):
     payload = {
-        "externalId": c,
+        "externalId": card["id"],
         "object": "org-collection",
-        "name": col,
+        "name": card["name"],
         "organizationId": oid,
     }
     ret = client.create(**payload)
