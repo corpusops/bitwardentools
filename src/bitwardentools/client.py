@@ -204,6 +204,10 @@ class CliLoginError(LoginError, CliRunError):
     process = None
 
 
+class AlreadyExitingUserError(RunError):
+    """."""
+
+
 def _get_obj_type(t):
     o = t.replace("-", "").lower().capitalize()
     obj = globals()[o]
@@ -2136,10 +2140,6 @@ class Client(object):
             collections=self.get_collections(sync=sync),
         )
         return ret
-
-
-class AlreadyExitingUserError(RunError):
-    """."""
 
 
 def bust_cache(cache=None):
