@@ -10,7 +10,9 @@ from multiprocessing import Pool
 import click
 
 import bitwardentools
-from bitwardentools import Client, L, as_bool, sanitize
+from bitwardentools import Client, L, as_bool
+from bitwardentools import client as bwclient
+from bitwardentools import sanitize
 
 bitwardentools.setup_logging()
 JSON = os.environ.get("VAULTIER_JSON", "data/export/vaultier.json")
@@ -41,7 +43,7 @@ def main(jsonf, server, email, password):
                 try:
                     orga["bw"] = client.get_organization(v)
                     L.info(f"Already created orga {v}")
-                except KeyError:
+                except bwclient.OrganizationNotFound:
                     L.info(f"Will create orga: {v}")
             orgas_to_import[v] = orga
             for cdata in vdata["cards"]:
@@ -57,7 +59,7 @@ def main(jsonf, server, email, password):
                         raise KeyError()
                     client.get_collection(c, orga=orga["bw"])
                     L.info(f"Already created {c}")
-                except (KeyError):
+                except (bwclient.CollectionNotFound):
                     try:
                         orga["collections"][c]
                     except KeyError:

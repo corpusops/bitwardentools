@@ -7,8 +7,8 @@ Tested with cli version 1.14.0
 from __future__ import absolute_import, division, print_function
 
 import enum
-import json
 import itertools
+import json
 import os
 import re
 import traceback
@@ -94,6 +94,7 @@ class BitwardenError(Exception):
 
 class ResponseError(BitwardenError):
     """."""
+
     response = None
 
 
@@ -107,6 +108,7 @@ class DecryptError(bwcrypto.DecryptError):
 
 class SearchError(BitwardenError):
     """."""
+
     criteria = None
 
 
@@ -144,16 +146,19 @@ class RunError(BitwardenError):
 
 class NoOrganizationKeyError(BitwardenError):
     """."""
+
     instance = None
 
 
 class NoSingleOrgaForNameError(BitwardenError):
     """."""
+
     instance = None
 
 
 class NoAttachmentsError(BitwardenError):
     """."""
+
     instance = None
 
 
@@ -171,6 +176,7 @@ class CiphersError(ResponseError):
 
 class BitwardenValidateError(BitwardenError):
     """."""
+
     email = None
 
 
@@ -180,11 +186,13 @@ class BitwardenPostValidateError(ResponseError, BitwardenValidateError):
 
 class CliRunError(BitwardenError):
     """."""
+
     process = None
 
 
 class CliLoginError(LoginError, CliRunError):
     """."""
+
     process = None
 
 
@@ -545,7 +553,7 @@ def get_reverse_cache():
 def add_cipher(ret, obj, vaultier=False):
     ret["id"][str(obj.id)] = obj
     ret["name"].setdefault(obj.name, {})[obj.id] = obj
-    if vaultier and getattr(obj, 'vaultiersecretid', False):
+    if vaultier and getattr(obj, "vaultiersecretid", False):
         ret["vaultier"][str(obj.vaultiersecretid)] = obj
 
 
@@ -561,9 +569,7 @@ def cache_cipher(r, vaultier=True):
         )
     for oid in [a for a in [getattr(r, "organizationId")] if a]:
         add_cipher(
-            scache["by_organization"].setdefault(
-                oid, deepcopy(SECRET_CACHE)
-            ),
+            scache["by_organization"].setdefault(oid, deepcopy(SECRET_CACHE)),
             r,
             vaultier=vaultier,
         )
@@ -663,8 +669,10 @@ class Client(object):
             headers.update({"Authorization": f"Bearer {token['access_token']}"})
         resp = getattr(requests, method.lower())(url, headers=headers, *a, **kw)
         if resp.status_code in [401] and token is not False:
-            L.debug(f"Access denied, trying to retry after refreshing token for {token['email']}")
-            ntoken = self.login(token['email'], token['password'])
+            L.debug(
+                f"Access denied, trying to retry after refreshing token for {token['email']}"
+            )
+            ntoken = self.login(token["email"], token["password"])
             if record and (token is self.token):
                 self.token = ntoken
             headers.update({"Authorization": f"Bearer {ntoken['access_token']}"})
@@ -1019,7 +1027,7 @@ class Client(object):
         oid, suf = jsond.get("organizationId", None) or orga, ""
         token = self.get_token(token)
         collections = collections or []
-        for i in jsond.get('collectionIds', []) or []:
+        for i in jsond.get("collectionIds", []) or []:
             if i not in collections:
                 collections.append(i)
         actionpre = {"post": "creat", "put": "edit"}.get(method, method)
@@ -1661,7 +1669,7 @@ class Client(object):
             isinstance(collection, Collection) and collection.name or collection
         )
         exc = SecretNotFound(f"No such cipher found {_id} in collection {collectionn}")
-        exc .criteria = [_id, collection, orga]
+        exc.criteria = [_id, collection, orga]
         raise exc
 
     def patch(self, *args, **kw):
@@ -1963,10 +1971,12 @@ class Client(object):
             jwt = jwt_encode(data, pem_private_key, algorithm="RS256")
             payload = {"userId": user.id, "token": jwt}
             try:
-                resp = self.r("/api/accounts/verify-email-token", json=payload, token=token)
+                resp = self.r(
+                    "/api/accounts/verify-email-token", json=payload, token=token
+                )
                 self.post_user_request(resp)
             except ResponseError as oexc:
-                exc = BitwardenPostValidateError('validation response failed')
+                exc = BitwardenPostValidateError("validation response failed")
                 exc.email = email
                 exc.response = oexc.response
                 raise exc
@@ -1974,7 +1984,7 @@ class Client(object):
                 user = self.get_user(email=user.email, sync=True)
                 assert user.emailVerified
             except AssertionError:
-                exc = BitwardenPostValidateError('validation did not complete')
+                exc = BitwardenPostValidateError("validation did not complete")
                 exc.email = email
                 exc.response = resp
                 raise exc

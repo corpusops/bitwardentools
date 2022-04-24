@@ -64,7 +64,7 @@ class TestBitwardenInteg(unittest.TestCase):
         self.client = bwclient.Client(
             email=email, password=pw, private_key=private_key, login=False
         )
-        for i in 'foo', 'org', 'bar', 'testorgp':
+        for i in "foo", "org", "bar", "testorgp":
             try:
                 self.client.get_organization(i)
                 self._wipe_objects()
@@ -299,8 +299,7 @@ class TestBitwardenInteg(unittest.TestCase):
         # seccard
         for i in (
             lambda: (
-                {"name": "aaa", "type": 0, "value": "aaa"}
-                == self.oseccard.fields[0]
+                {"name": "aaa", "type": 0, "value": "aaa"} == self.oseccard.fields[0]
             ),
             lambda: (
                 False
