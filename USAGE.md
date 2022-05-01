@@ -67,7 +67,7 @@ col2 = client.create(**{
     'object': 'org-collection',
     'name': "testcol2",
     'organizationId': client.item_or_id(orga)})
-# Create a login
+# Create a login within an organization, collectionIds is mandatory on bitwarden_rs 1.19+
 cipher = client.create(**{
     "name": "test",
     "object": "item",
@@ -75,6 +75,12 @@ cipher = client.create(**{
     "notes": "supernote",
     "login": {'username': "alice", "password": "rabbit"},
     "collectionIds": [col2.id],})
+# Create a login within your personal vault
+cipher = client.create(**{
+    "name": "test",
+    "object": "item",
+    "notes": "supernote",
+    "login": {'username': "alice", "password": "rabbit"})
 #
 # Patch existing objects
 testorg = client.get_organization("org")
