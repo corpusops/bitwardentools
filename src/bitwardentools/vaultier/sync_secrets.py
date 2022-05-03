@@ -20,8 +20,9 @@ from bitwardentools import (
     NoAttachmentsError,
     SecretNotFound,
     as_bool,
-    sanitize,
 )
+from bitwardentools import client as bwclient
+from bitwardentools import sanitize
 
 bitwardentools.setup_logging()
 JSON = os.environ.get("VAULTIER_JSON", "data/export/vaultier.json")
@@ -125,7 +126,8 @@ def record(client, cipherd):
 @click.option("--server", default=bitwardentools.SERVER)
 @click.option("--email", default=bitwardentools.EMAIL)
 @click.option("--password", default=bitwardentools.PASSWORD)
-def main(jsonf, server, email, password):
+@click.option("--assingleorg", " /-S", default=True, is_flag=True)
+def main(jsonf, server, email, password, assingleorg):
     L.info("start")
     client = Client(vaultier=True)
     client.sync()
@@ -134,18 +136,25 @@ def main(jsonf, server, email, password):
     for jsonff in jsonf.split(":"):
         with open(jsonff) as fic:
             data = json.load(fic)
+        orga = {}
+        if assingleorg:
+            organ = data["name"]
+            orga = client.get_organization(organ)
         for iv, vdata in enumerate(data["vaults"]):
             v = vdata["name"]
             if not vdata["cards"]:
                 L.info(f"Skipping {v} as it has no cards")
                 continue
-            orga = client.get_organization(v)
+            if not assingleorg:
+                orga = client.get_organization(v)
             collections = client.get_collections(orga)
             for cdata in vdata["cards"]:
-                c = cdata["name"]
-                collection = client.get_collection(c, collections=collections)
-                n = sanitize(c)
-                cid = client.get_collection(n, collections=collections).id
+                cn = sanitize(cdata["name"])
+                vc = cn
+                if assingleorg:
+                    vc = f"{v} {cn}"
+                collection = client.get_collection(vc, collections=collections)
+                cid = collection.id
                 for ix, secret in enumerate(cdata["secrets"]):
                     sid = f"{secret['id']}"
                     vaultier_secrets[sid] = secret
@@ -167,7 +176,7 @@ def main(jsonf, server, email, password):
                     try:
                         sec = client.get_cipher(
                             sid,
-                            n,
+                            vc,
                             collections=collections,
                             orga=orga,
                             vaultier=True,
@@ -208,7 +217,7 @@ def main(jsonf, server, email, password):
                                 edit = True
                         if edit:
                             idata["actions"].append("edit")
-                            L.info(f"Will patch already existing {sec.name} in {n}")
+                            L.info(f"Will patch already existing {sec.name} in {vc}")
                         if secret["type"] == VAULTIER_SECRET.file:
                             fn = secret["blob_meta"]["filename"]
                             try:
@@ -221,14 +230,14 @@ def main(jsonf, server, email, password):
                                 idata["actions"].append("attach")
                             else:
                                 L.info(
-                                    f"Already attached {fn} to  {sec.name}/{sec.id} in {n}"
+                                    f"Already attached {fn} to  {sec.name}/{sec.id} in {vc}"
                                 )
                         if cid not in sec.collectionIds:
                             idata["actions"].append("link")
                             idata["collections"] = [cid] + (sec.collectionIds or [])
-                            L.info(f"Will link {sec.name} in {n}")
+                            L.info(f"Will link {sec.name} in {vc}")
                         if not idata["actions"]:
-                            L.info(f"Already created {sec.name}/{sec.id} in {n}")
+                            L.info(f"Already created {sec.name}/{sec.id} in {vc}")
                     except SecretNotFound:
                         try:
                             ciphers_to_import[sid]
@@ -238,7 +247,7 @@ def main(jsonf, server, email, password):
                                 idata["actions"].append("attach")
                             idata["collections"] = [cid]
                             idata["actions"].append("link")
-                            L.info(f'Will create {secret["name"]} in {n}')
+                            L.info(f'Will create {secret["name"]} in {vc}')
                     if idata["actions"]:
                         ciphers_to_import[sid] = idata
 
