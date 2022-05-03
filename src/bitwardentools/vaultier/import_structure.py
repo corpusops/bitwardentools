@@ -23,7 +23,8 @@ JSON = os.environ.get("VAULTIER_JSON", "data/export/vaultier.json")
 @click.option("--server", default=bitwardentools.SERVER)
 @click.option("--email", default=bitwardentools.EMAIL)
 @click.option("--password", default=bitwardentools.PASSWORD)
-def main(jsonf, server, email, password):
+@click.option("--assingleorg", " /-S", default=True, is_flag=True)
+def main(jsonf, server, email, password, assingleorg):
     L.info("start")
     client = Client(server, email, password)
     client.api_sync()
@@ -31,41 +32,58 @@ def main(jsonf, server, email, password):
     for jsonff in jsonf.split(":"):
         with open(jsonff) as fic:
             data = json.load(fic)
+        orga = {}
+        if assingleorg:
+            organ = data["name"]
+            try:
+                orgao = client.get_organization(organ)
+                L.info(f"Already created orga {organ}")
+            except bwclient.OrganizationNotFound:
+                orgao = None
+                L.info(f"Will create orga: {organ}")
         for vi, vdata in enumerate(data["vaults"]):
             v = sanitize(vdata["name"])
             if not vdata["cards"]:
                 L.info(f"Skipping {v} as it has no cards")
                 continue
-            orga = {"bw": None, "vault": vdata, "name": v, "collections": OrderedDict()}
-            try:
-                orgas_to_import[v]
-            except KeyError:
+            if not assingleorg:
+                orga = {}
+                organ = v
                 try:
-                    orga["bw"] = client.get_organization(v)
-                    L.info(f"Already created orga {v}")
-                except bwclient.OrganizationNotFound:
-                    L.info(f"Will create orga: {v}")
-            orgas_to_import[v] = orga
+                    orgas_to_import[organ.lower()]
+                except KeyError:
+                    try:
+                        orgao = client.get_organization(v)
+                        L.info(f"Already created orga {v}")
+                    except bwclient.OrganizationNotFound:
+                        orgao = None
+                        L.info(f"Will create orga: {v}")
+            orga.update({"bw": orgao, "name": organ})
+            orga.setdefault("collections", OrderedDict())
+            orgas_to_import.setdefault(organ.lower(), orga)
             for cdata in vdata["cards"]:
-                c = sanitize(cdata["name"])
+                cn = sanitize(cdata["name"])
+                vc = cn
+                if assingleorg:
+                    vc = f"{v} {cn}"
                 try:
                     orga["collection_name"]
                 except KeyError:
-                    orga["collection_name"] = c
-                    L.info(f"{c} is Default Collection")
+                    orga["collection_name"] = vc
+                    L.info(f"{vc} is Default Collection")
                     continue
                 try:
                     if not orga["bw"]:
                         raise KeyError()
-                    client.get_collection(c, orga=orga["bw"])
-                    L.info(f"Already created {c}")
+                    client.get_collection(vc, orga=orga["bw"])
+                    L.info(f"Already created {vc}")
                 except (bwclient.CollectionNotFound, KeyError):
                     try:
-                        orga["collections"][c]
+                        orga["collections"][vc.lower()]
                     except KeyError:
-                        L.info(f"Will create {c} in orga: {v}")
-                        orga["collections"][c] = {"card": cdata, "name": c}
-            orga.setdefault("collection_name", v)
+                        L.info(f"Will create {vc} in orga: {v}")
+                        orga["collections"][vc.lower()] = {"card": cdata, "name": vc}
+            orga.setdefault("collection_name", vc)
 
     constructed = OrderedDict()
     parallel = as_bool(os.environ.get("BW_PARALLEL_IMPORT", "1"))
@@ -98,7 +116,7 @@ def main(jsonf, server, email, password):
     items = []
     for i, o in orgas_to_import.items():
         for col, c in o["collections"].items():
-            items.append([client, i, o["bw"].id, col, c["card"]["id"], constructed])
+            items.append([client, i, o["bw"].id, col, c, constructed])
     if parallel:
         with Pool(processes=processes) as pool:
             res = pool.starmap_async(record, items)
@@ -128,7 +146,7 @@ def record_orga(client, org, odata, email, constructed):
 
 def record(client, i, oid, col, c, constructed):
     payload = {
-        "externalId": c,
+        "externalId": card["card"]["id"],
         "object": "org-collection",
         "name": col,
         "organizationId": oid,

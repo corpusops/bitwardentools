@@ -21,7 +21,8 @@ JSON = os.environ.get("VAULTIER_JSON", "data/export/vaultier.json")
 @click.option("--server", default=bitwardentools.SERVER)
 @click.option("--email", default=bitwardentools.EMAIL)
 @click.option("--password", default=bitwardentools.PASSWORD)
-def main(jsonf, server, email, password):
+@click.option("--assingleorg", " /-S", default=True, is_flag=True)
+def main(jsonf, server, email, password, assingleorg):
     L.info("start")
     client = Client(server, email, password)
     client.sync()
@@ -30,6 +31,11 @@ def main(jsonf, server, email, password):
     for jsonff in jsonf.split(":"):
         with open(jsonff) as fic:
             data = json.load(fic)
+        if assingleorg:
+            orga = {"bw": None, "name": data["name"], "collections": OrderedDict()}
+            v = orga["name"]
+            v = sanitize(orga["name"])
+            data["vaults"] = [orga]
         for vdata in data["vaults"]:
             v = sanitize(vdata["name"])
             try:
