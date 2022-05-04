@@ -39,14 +39,14 @@ def main(jsonf, server, email, password, assingleorg):
         for vdata in data["vaults"]:
             v = sanitize(vdata["name"])
             try:
-                orgas_to_delete[v]
+                orgas_to_delete[v.lower()]
             except KeyError:
                 try:
-                    ods = orgas["name"][v]
+                    ods = orgas["name"][v.lower()]
                 except KeyError:
                     continue
                 for ix, (_, o) in enumerate(ods.items()):
-                    orgas_to_delete[f"{v}{ix}"] = {
+                    orgas_to_delete[f"{v}{ix}".lower()] = {
                         "bw": o,
                         "vault": vdata,
                         "name": v,

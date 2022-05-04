@@ -2,11 +2,15 @@
 # -*- coding: utf-8 -*-
 from __future__ import absolute_import, division, print_function
 
+import copy
 import os
+import secrets
 import unittest
 
 from bitwardentools import client as bwclient
 from bitwardentools import crypto as bwcrypto
+
+ORGA_TEST_ID = os.environ.get("ORGA_TEST_ID", "bitwardentoolstest")
 
 
 class TestBitwardenInteg(unittest.TestCase):
@@ -14,86 +18,83 @@ class TestBitwardenInteg(unittest.TestCase):
     useremail = f"{bwclient.EMAIL}SIMPLE"
     password = bwclient.PASSWORD
 
-    def _wipe_objects(self):
+    @classmethod
+    def get_users(self):
+        users = [("admin", self.email, self.password)]
+        for i in ["", "delete"] + list(range(4)):
+            users.append((f"user{i}", f"{self.useremail}{i}", self.password))
+        return users
+
+    @classmethod
+    def wipe_objects(self):
         client = self.client
         for jsond in (
             #
-            {"object": "organization", "name": "foo"},
-            {"object": "organization", "name": "org"},
-            {"object": "organization", "name": "testorgp"},
-            {"object": "organization", "name": "bar"},
+            {"object": "organization"},
             #
+            {"object": "collection", "name": "toocol"},
             {"object": "collection", "name": "testcolp"},
             {"object": "collection", "name": "testcolp2"},
             #
             {"object": "item", "name": "testitp"},
             #
-            {"object": "cipher", "name": "foo"},
+            {"object": "cipher", "name": "too"},
+            {"object": "cipher", "name": "toosec"},
             {"object": "cipher", "name": "secp"},
         ):
-            objs = client.search(jsond)
+            try:
+                objs = client.search(jsond)
+                if jsond["object"] == "organization":
+                    objs = dict(
+                        [
+                            (a, objs[a])
+                            for a in objs
+                            if objs[a].name.startswith(ORGA_TEST_ID)
+                        ]
+                    )
+            except bwclient.LoginError:
+                # ADMIN seems not to exist now, bypass
+                break
             for obj in objs.values():
                 try:
                     self.client.delete(obj)
                 except bwclient.DeleteError:
                     pass
 
-    def _wipe_users(self):
-        for i in ["test@usr", "to@delete", bwclient.EMAIL]:
-            try:
-                self.delete_user(i)
-            except Exception:
-                pass
-
-    def _wipe(self):
-        self._wipe_objects()
-        self._wipe_users()
-        self._done = False
-
-    def tearDown(self):
-        self._wipe()
-
-    def setUp(self):
-        email, pw = self.email, self.password
-        tpkey = "/test/rsa_key.der"
-        private_key = bwclient.PRIVATE_KEY
-        if os.path.exists(tpkey):
-            with open(tpkey, "rb") as fic:
-                private_key = fic.read()
-
-        self.client = bwclient.Client(
-            email=email, password=pw, private_key=private_key, login=False
-        )
-        for i in "foo", "org", "bar", "testorgp":
-            try:
-                self.client.get_organization(i)
-                self._wipe_objects()
-            except (bwclient.OrganizationNotFound, bwclient.LoginError):
-                continue
-            break
-        self.setup_users()
-        self._wipe()
-
-    def setup_users(self):
-        for attr, email, password in [
-            ("admin", self.email, self.password),
-            ("user", self.useremail, self.password),
-        ]:
+    @classmethod
+    def wipe_users(self):
+        for attr, email, password in self.get_users():
             try:
                 self.client.delete_user(email)
             except (bwclient.UserNotFoundError):
                 pass
-            setattr(self, attr, self.client.create_user(email, password))
-            if attr == "admin":
-                self.client.login(email, password)
 
+    @classmethod
+    def wipe(self, wipe_users_first=False):
+        methods = [self.wipe_objects, self.wipe_users]
+        for m in wipe_users_first and reversed(methods) or methods:
+            m()
+        self.client.bust_cache()
+        self._fixtures_done = False
+
+    @classmethod
+    def setup_users(self):
+        for attr, email, password in self.get_users():
+            setattr(self, attr, self.client.create_user(email, password))
+        self.client.login(self.email, self.password)
+
+    @classmethod
     def setup_fixtures(self):
-        s, client = self, self.client
-        if getattr(self, "_done", False):
+        if getattr(self, "_fixtures_done", False):
             return
-        orga = self.orga = client.create_organization("foo", "foo@foo.com")
+        s, client = self, self.client
+        orga = self.orga = client.create_organization(ORGA_TEST_ID)
+        self.client.get_organization_key(orga)
         col = self.col = client.create_collection("bar", orga=orga.id)
         self.col2 = client.create_collection("bar2", orga=orga.id)
+        self.col3 = client.create_collection("bar3", orga=orga.id)
+        self.col4 = client.create_collection("bar4", orga=orga.id)
+        self.col5 = client.create_collection("bar5", orga=orga.id)
         self.secp = {
             "notes": "supernote",
             "login": {
@@ -107,26 +108,26 @@ class TestBitwardenInteg(unittest.TestCase):
         s.osecpersonal = client.create_item("secpersonal", **self.secp)
         self.seci = {
             "identity": {
-                "address1": "foo",
-                "address2": "foo",
-                "address3": "foo",
-                "city": "foo",
-                "postalCode": "foo",
-                "country": "foo",
-                "state": "foo",
-                "username": "foo",
-                "company": "foo",
-                "phone": "foo",
-                "email": "foo",
+                "address1": "too",
+                "address2": "too",
+                "address3": "too",
+                "city": "too",
+                "postalCode": "too",
+                "country": "too",
+                "state": "too",
+                "username": "too",
+                "company": "too",
+                "phone": "too",
+                "email": "too",
                 "title": "Mrs",
-                "firstName": "foo",
-                "lastName": "foo",
-                "middleName": "foo",
-                "ssn": "foo",
-                "licenseNumber": "foo",
-                "passportNumber": "foo",
+                "firstName": "too",
+                "lastName": "too",
+                "middleName": "too",
+                "ssn": "too",
+                "licenseNumber": "too",
+                "passportNumber": "too",
             },
-            "notes": "foo",
+            "notes": "too",
         }
         s.oseci = client.create_identity("sec1", orga, collections=[col], **self.seci)
         self.secn = {
@@ -140,7 +141,7 @@ class TestBitwardenInteg(unittest.TestCase):
         self.seccard = {
             "card": {
                 "brand": "sec",
-                "cardholderName": "foo",
+                "cardholderName": "too",
                 "number": "aaa",
                 "code": "123456",
                 "expMonth": "10",
@@ -155,7 +156,7 @@ class TestBitwardenInteg(unittest.TestCase):
         self.seccard2 = {
             "card": {
                 "brand": "sec",
-                "cardholderName": "foo",
+                "cardholderName": "too",
                 "number": "aaa",
                 "code": "123456",
                 "expMonth": "10",
@@ -165,14 +166,42 @@ class TestBitwardenInteg(unittest.TestCase):
             "notes": "aaa",
         }
         self.oseccard2 = client.create_card(
-            "foo", orga, collections=[col], **self.seccard2
+            "too", orga, collections=[col], **self.seccard2
         )
         self.client.warm()
-        self._done = True
+        self._fixtures_done = True
+
+    @classmethod
+    def tearDownClass(self):
+        self.wipe()
+
+    @classmethod
+    def setUpClass(self):
+        if getattr(self, "_setup_done", None):
+            return
+        tpkey = "/test/rsa_key.der"
+        private_key = bwclient.PRIVATE_KEY
+        if os.path.exists(tpkey):
+            with open(tpkey, "rb") as fic:
+                private_key = fic.read()
+        self.client = bwclient.Client(
+            email=self.email,
+            password=self.password,
+            private_key=private_key,
+            login=False,
+        )
+        self.wipe()
+        self.setup_users()
+        self.setup_fixtures()
+        self._setup_done = True
 
     def test_create_via_payload(self):
         client = self.client
-        orgp = {"object": "organization", "name": "testorgp", "email": "foo@org"}
+        orgp = {
+            "object": "organization",
+            "name": f"{ORGA_TEST_ID}testorgp",
+            "email": "too@org",
+        }
         orga = client.create(**orgp)
         colp = {
             "object": "org-collection",
@@ -227,34 +256,32 @@ class TestBitwardenInteg(unittest.TestCase):
 
     def test_patch(self):
         client = self.client
-        self.setup_fixtures()
         # Patch existing objects
         n = self.orga.name
-        ret = client.edit_organization(self.orga, name="fooorg")
+        ret = client.edit_organization(self.orga, name="tooorg")
         item = client.search_objects({"id": self.orga.id}, sync=True)[0]
-        self.assertEqual(ret.name, "fooorg")
+        self.assertEqual(ret.name, "tooorg")
         ret = client.edit_organization(self.orga, name=n)
         item = client.search_objects({"id": self.orga.id}, sync=True)[0]
         self.assertEqual(item.name, n)
         #
         n = self.col.name
-        ret = client.edit_orgcollection(self.col, name="foocol")
+        ret = client.edit_orgcollection(self.col, name="toocol")
         item = client.search_objects({"id": self.col.id}, sync=True)[0]
-        self.assertEqual(ret.name, "foocol")
+        self.assertEqual(ret.name, "toocol")
         ret = client.edit_orgcollection(self.col, name=n)
         item = client.search_objects({"id": self.col.id}, sync=True)[0]
         self.assertEqual(item.name, n)
         #
         n = self.oseci.notes
-        ret = client.edit_item(self.oseci, notes="foosec")
-        self.assertEqual(ret.notes, "foosec")
+        ret = client.edit_item(self.oseci, notes="toosec")
+        self.assertEqual(ret.notes, "toosec")
         ret = client.edit_item(self.oseci, notes=n)
         item = client.search_objects({"id": self.oseci.id}, sync=True)[0]
         self.assertEqual(item.notes, n)
 
     def test_ciphers(self):
         client = self.client
-        self.setup_fixtures()
         # Play with ciphers
         all_ciphers = client.get_ciphers(collection=self.col)
         cipher = [a for a in all_ciphers["id"].values()][0]
@@ -330,12 +357,8 @@ class TestBitwardenInteg(unittest.TestCase):
             self.assertTrue(i())
 
     def test_create_user(self):
-        email, pw = "test@usr", "12345657azertry"
-        try:
-            self.client.delete_user(email)
-        except Exception:
-            pass
-        usr, epw = self.client.create_user(email, pw)
+        email, pw = self.email, self.password
+        usr, epw = self.admin
         self.assertEqual(email, usr.email)
         self.assertEqual(pw, epw)
         self.assertTrue(usr.emailVerified)
@@ -347,20 +370,33 @@ class TestBitwardenInteg(unittest.TestCase):
             rsak.public_key().exportKey("PEM").decode(), "-----BEGIN PUBLIC KEY-----"
         )
 
+    def test_uncache1(self):
+        c1 = copy.deepcopy(self.client._cache)
+        self.client.uncache(obj=self.admin[0])
+        c2 = copy.deepcopy(self.client._cache)
+        self.assertEqual(len(c1["users"]["id"]) - 1, len(c2["users"]["id"]))
+        self.assertFalse(self.admin[0].id in c2["users"]["id"])
+        self.assertTrue(self.admin[0].id in c1["users"]["id"])
+        self.assertFalse(self.admin[0].email in c2["users"]["email"])
+        self.assertTrue(self.admin[0].email in c1["users"]["email"])
+        self.client.cache(self.admin[0])
+        c3 = copy.deepcopy(self.client._cache)
+        self.assertTrue(self.admin[0].id in c3["users"]["id"])
+        self.assertTrue(self.admin[0].email in c3["users"]["email"])
+
     def test_delete_user(self):
-        uid = "to@delete"
-        try:
-            self.client.create_user(uid)
-        except Exception:
-            pass
-        try:
-            self.client.get_user(uid, sync=True)
-        except bwclient.UserNotFoundError:
-            self.assertTrue(False)
-        self.client.delete_user(uid)
+        uid = self.userdelete[0]
+        self.client.delete_user(user=uid)
         self.assertRaises(
-            bwclient.UserNotFoundError, self.client.get_user, uid, sync=True
+            bwclient.UserNotFoundError, self.client.get_user, user=uid, sync=True
         )
+
+    def test_bust(self):
+        self.client.warm()
+        test_cache = copy.deepcopy(self.client._cache)
+        self.client.bust_cache()
+        self.assertFalse(len(self.client._cache["users"]["id"]) > 0)
+        self.assertTrue(len(test_cache["users"]["id"]) > 0)
 
 
 if __name__ == "__main__":
