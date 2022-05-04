@@ -135,7 +135,7 @@ def record_orga(client, org, odata, email, constructed):
         ret = client.create(
             **{
                 "object": "organization",
-                "name": org,
+                "name": odata["name"],
                 "collection_name": odata["collection_name"],
                 "email": email,
             }
@@ -144,11 +144,11 @@ def record_orga(client, org, odata, email, constructed):
     return org, odata["bw"]
 
 
-def record(client, i, oid, col, c, constructed):
+def record(client, i, oid, col, card, constructed):
     payload = {
         "externalId": card["card"]["id"],
         "object": "org-collection",
-        "name": col,
+        "name": card["name"],
         "organizationId": oid,
     }
     ret = client.create(**payload)

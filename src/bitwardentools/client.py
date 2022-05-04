@@ -11,11 +11,11 @@ import itertools
 import json
 import os
 import re
+import secrets
 import traceback
 from base64 import b64decode, b64encode
 from collections import OrderedDict
 from copy import deepcopy
-from secrets import token_bytes
 from subprocess import run
 from time import time
 
@@ -27,23 +27,23 @@ from bitwardentools.common import L
 
 VAULTIER_FIELD_ID = "vaultiersecretid"
 DEFAULT_CACHE = {"id": {}, "name": {}, "sync": False}
-SECRET_CACHE = {"id": {}, "name": {}, "vaultier": {}, "sync": []}
-CACHE = {
+SYNC_ALL_ORGAS_ID = "__orga__all__ORGAS__"
+SYNC_ORGA_ID = "__orga__{0}"
+SECRET_CACHE = {"id": {}, "name": {}, "vaultiersecretid": {}, "sync": []}
+DEFAULT_BITWARDEN_CACHE = {
     "sync": {},
-    "users": {},
-    "okeys": {},
     "templates": {},
+    "users": deepcopy(DEFAULT_CACHE),
     "organizations": deepcopy(DEFAULT_CACHE),
-    "collections": deepcopy(DEFAULT_CACHE),
+    "collections": {"sync": False, SYNC_ALL_ORGAS_ID: deepcopy(DEFAULT_CACHE)},
     "ciphers": {
-        "raw": {},
         "sync": False,
         "by_cipher": deepcopy(SECRET_CACHE),
         "by_collection": {},
         "by_organization": {},
     },
 }
-
+CACHE = deepcopy(DEFAULT_BITWARDEN_CACHE)
 FILTERED_ATTRS = re.compile("^_|^vaultier|^json$")
 TYPES_MAPPING = {"org-collection": "orgcollection"}
 REVERSE_TYPES_MAPPING = dict([(v, k) for k, v in TYPES_MAPPING.items()])
@@ -66,13 +66,24 @@ TYPMAPPER = {
     "securenote": "cipher",
     "identity": "cipher",
     "login": "cipher",
+    "profile": "profile",
+    "user": "profile",
 }
-
-
-def pop_cache(cache):
-    for i in [a for a in cache]:
-        cache.pop(i, None)
-    return cache
+COLTYPMAPPER = {
+    "organization": "organizations",
+    "collection": "collections",
+    "orgcollection": "collections",
+    "user": "users",
+    "profiles": "users",
+    "profile": "users",
+    "cipher": "ciphers",
+    "cipherdetails": "ciphers",
+    "item": "ciphers",
+    "card": "ciphers",
+    "note": "ciphers",
+    "securenote": "ciphers",
+    "login": "ciphers",
+}
 
 
 def uncapitzalize(s):
@@ -90,6 +101,16 @@ def clibase64(item):
 
 class BitwardenError(Exception):
     """."""
+
+
+class BitwardenUncacheError(BitwardenError):
+    """."""
+
+
+class BitwardenInvalidInput(BitwardenError):
+    """."""
+
+    inputs = None
 
 
 class ResponseError(BitwardenError):
@@ -150,10 +171,18 @@ class NoOrganizationKeyError(BitwardenError):
     instance = None
 
 
-class NoSingleOrgaForNameError(BitwardenError):
+class NoSingleItemForNameError(BitwardenError):
     """."""
 
     instance = None
+
+
+class NoSingleOrgaForNameError(NoSingleItemForNameError):
+    """."""
+
+
+class NoSingleCollectionForNameError(NoSingleItemForNameError):
+    """."""
 
 
 class NoAttachmentsError(BitwardenError):
@@ -194,6 +223,10 @@ class CliLoginError(LoginError, CliRunError):
     """."""
 
     process = None
+
+
+class AlreadyExitingUserError(RunError):
+    """."""
 
 
 def _get_obj_type(t):
@@ -268,6 +301,7 @@ class BWFactory(object):
             vaultier = True
         for k in ["vaultier", "vaultiersecretid"]:
             setattr(self, k, jsond.pop(k, locals()[k]))
+        self.broken_objs = OrderedDict()
 
     def delete(self, client):
         return client.delete(self)
@@ -428,7 +462,7 @@ class Organization(BWFactory):
     """."""
 
     def __init__(self, *a, **kw):
-        ret = super(Organization, self).__init__(*a, *kw)
+        ret = super(Organization, self).__init__(*a, **kw)
         self._complete = False
         return ret
 
@@ -525,72 +559,6 @@ class Collection(BWFactory):
 Orgcollection = Collection
 
 
-def get_all_cached_items(subcache):
-    values = []
-    for k in ("name",):
-        for namevalue, items in subcache[k].items():
-            values.append(items)
-    for k in "id", "vaultier":
-        try:
-            values.append(subcache[k])
-        except KeyError:
-            pass
-    return values
-
-
-def get_reverse_cache():
-    rciphers = get_all_cached_items(CACHE["ciphers"]["by_cipher"])
-    for k in "by_collection", "by_organization":
-        for container in CACHE["ciphers"][k]:
-            rciphers.extend(get_all_cached_items(CACHE["ciphers"][k][container]))
-    return {
-        "organization": get_all_cached_items(CACHE["organizations"]),
-        "collection": get_all_cached_items(CACHE["collections"]),
-        "cipher": rciphers,
-    }
-
-
-def add_cipher(ret, obj, vaultier=False):
-    ret["id"][str(obj.id)] = obj
-    ret["name"].setdefault(obj.name, {})[obj.id] = obj
-    if vaultier and getattr(obj, "vaultiersecretid", False):
-        ret["vaultier"][str(obj.vaultiersecretid)] = obj
-
-
-def cache_cipher(r, vaultier=True):
-    scache = CACHE["ciphers"]
-    scache["raw"][r.id] = r
-    add_cipher(scache["by_cipher"], r, vaultier=vaultier)
-    for cid in getattr(r, "collectionIds"):
-        add_cipher(
-            scache["by_collection"].setdefault(cid, deepcopy(SECRET_CACHE)),
-            r,
-            vaultier=vaultier,
-        )
-    for oid in [a for a in [getattr(r, "organizationId")] if a]:
-        add_cipher(
-            scache["by_organization"].setdefault(oid, deepcopy(SECRET_CACHE)),
-            r,
-            vaultier=vaultier,
-        )
-
-
-def cache_organization(r):
-    CACHE["organizations"].setdefault("id", {})[r.id] = r
-    CACHE["organizations"].setdefault("name", {}).setdefault(r.name, {})[r.id] = r
-
-
-def cache_collection(r, scope="all"):
-    if not isinstance(scope, dict):
-        scope = CACHE["collections"].setdefault(scope, deepcopy(DEFAULT_CACHE))
-    scope["id"][r.id] = r
-    scope["name"][r.name] = r
-    ex = scope.setdefault("externalId", {})
-    if getattr(r, "externalId", None):
-        ex[r.externalId] = r
-    return scope
-
-
 class Client(object):
     def __init__(
         self,
@@ -603,8 +571,13 @@ class Client(object):
         client_id="python",
         client_uuid=CUUID,
         login=True,
+        cache=None,
         vaultier=False,
     ):
+        # goal is to allow shared cache amongst client instances
+        # but also if we want totally isolated caches
+        if cache is None:
+            cache = CACHE
         if not email:
             raise RunError("no email")
         if not server:
@@ -629,6 +602,7 @@ class Client(object):
         self.client_uuid = client_uuid
         self.templates = {}
         self.token = None
+        self._cache = cache
         if login:
             self.token = self.login()
 
@@ -825,15 +799,15 @@ class Client(object):
         otype = get_obj_type(otype)
         bwt = get_bw_type(otype)
         try:
-            tpl = CACHE["templates"][otype]
+            tpl = self._cache["templates"][otype]
         except KeyError:
-            tpl = CACHE["templates"][otype] = self.call(f"get template {bwt}")
+            tpl = self._cache["templates"][otype] = self.call(f"get template {bwt}")
         tpl = deepcopy(tpl)
         tpl.update(kw)
         return tpl
 
     def api_sync(self, sync=None, cache=None, token=None):
-        _CACHE = CACHE["sync"]
+        _CACHE = self._cache["sync"]
         k = "api_sync"
         token = self.get_token(token)
         if sync is None:
@@ -872,12 +846,12 @@ class Client(object):
                 unmarshall=True,
             )
             orga._complete = True
-            cache_organization(orga)
+            self.cache(orga)
         return orga
 
     def get_organizations(self, sync=None, cache=None, token=None):
         token = self.get_token(token)
-        _CACHE = CACHE["organizations"]
+        _CACHE = self._cache["organizations"]
         if sync is None:
             sync = False
         if cache is None:
@@ -892,18 +866,23 @@ class Client(object):
                 orga = deepcopy(orga)
                 orga["Object"] = "organization"
                 obj = BWFactory.construct(orga, client=self, unmarshall=True)
-                cache_organization(obj)
+                self.cache(obj)
             _CACHE["sync"] = True
         return _CACHE
 
     def get_organization(self, orga, sync=None, cache=None, token=None, complete=None):
         token = self.get_token(token)
         if isinstance(orga, Organization):
-            return orga
+            if not sync:
+                return orga
+            else:
+                orga = orga.id
         _id = self.item_or_id(orga)
+        if isinstance(_id, str):
+            _id = _id.lower()
         try:
             return self.finish_orga(
-                CACHE["organizations"]["id"][_id],
+                self._cache["organizations"]["id"][_id],
                 token=token,
                 cache=cache,
                 complete=complete,
@@ -920,7 +899,7 @@ class Client(object):
             orgas = organizations["name"][_id]
             if len(orgas) > 1:
                 exc = NoSingleOrgaForNameError(f"More that one orga with {_id} name.")
-                exc.isntance = organizations
+                exc.instance = organizations
                 raise exc
             for a, v in orgas.items():
                 return self.finish_orga(v, token=token, cache=cache, complete=complete)
@@ -973,6 +952,91 @@ class Client(object):
             val = type(val)([self.encrypt_item(v, key) for v in val])
         return val
 
+    def _cache_objects(
+        self, items, cache_key=None, cache=None, attributes=None, uniques=None, id_=None
+    ):
+        if not isinstance(items, (list, tuple)):
+            items = [items]
+        if cache is None:
+            cache = self._cache
+        if cache_key:
+            cache = cache.setdefault(cache_key, deepcopy(DEFAULT_CACHE))
+        if not uniques:
+            uniques = ["id", "externalId", "vaultiersecretid"]
+        if attributes is None:
+            attributes = ["id", "name"]
+        attributes = list(set(attributes + uniques))
+        for a in attributes:
+            subcache = cache.setdefault(a, OrderedDict())
+            if not items:
+                continue
+            for item in items:
+                if not hasattr(item, a):
+                    continue
+                itemid = id_ or item.id
+                identifier = getattr(item, a)
+                if identifier and (a in ["vaultiersecretid"]):
+                    identifier = str(identifier)
+                if isinstance(identifier, str):
+                    identifier = identifier.lower()
+                if a in uniques:
+                    if not identifier:
+                        continue
+                    subcache[identifier] = item
+                else:
+                    subsubcache = subcache.setdefault(identifier, OrderedDict())
+                    subsubcache[itemid] = item
+        return cache
+
+    _cache_object = _cache_objects
+
+    def cache_user(self, r, **kw):
+        return self._cache_objects(r, cache_key="users", uniques=["id", "email"])
+
+    def cache_organization(self, r, **kw):
+        return self._cache_objects(r, "organizations")
+
+    def cache_collection(self, r, cache_key=SYNC_ALL_ORGAS_ID, **kw):
+        return self._cache_objects(
+            r, cache=self._cache["collections"], cache_key=cache_key, **kw
+        )
+
+    def add_cipher(self, ret, obj, **kw):
+        return self._cache_object(obj, cache=ret)
+
+    def cache_cipher(self, r, vaultier=True, **kw):
+        scache = self._cache["ciphers"]
+        self._cache_object(r, cache=scache["by_cipher"])
+        for cid in getattr(r, "collectionIds"):
+            self._cache_object(
+                r, cache=scache["by_collection"].setdefault(cid, deepcopy(SECRET_CACHE))
+            )
+        for oid in [a for a in [getattr(r, "organizationId")] if a]:
+            self._cache_object(
+                r,
+                cache=scache["by_organization"].setdefault(oid, deepcopy(SECRET_CACHE)),
+            )
+        return scache
+
+    def cache(self, obj, **kw):
+        ret = []
+        if not isinstance(obj, (list, tuple, set)):
+            obj = [obj]
+        for i in obj:
+            if isinstance(i, Profile):
+                cache_method = self.cache_user
+            elif isinstance(i, Collection):
+                cache_method = self.cache_collection
+            elif isinstance(i, Organization):
+                cache_method = self.cache_organization
+            elif isinstance(i, Item):
+                cache_method = self.cache_cipher
+            else:
+                cache_method = None
+            if cache_method:
+                ret.append(cache_method(i, **kw))
+        return ret
+
     def _upload_object(self, uri, data, key=None, log=None, method="post"):
         resp = self.r(uri, json=data, method=method)
         self.assert_bw_response(resp)
@@ -983,16 +1047,7 @@ class Client(object):
         if not log:
             log = f"Created {obj.object}"
         log += f"{obj.id}"
-        if isinstance(obj, Collection):
-            cache_method = cache_collection
-        elif isinstance(obj, Organization):
-            cache_method = cache_organization
-        elif isinstance(obj, Item):
-            cache_method = cache_cipher
-        else:
-            cache_method = None
-        if cache_method:
-            cache_method(obj)
+        self.cache(obj)
         L.info(log)
         return obj
 
@@ -1141,13 +1196,13 @@ class Client(object):
         obj = self._upload_object(
             f"/api/organizations/{obj.id}", data, log=log, method="put"
         )
-        cache_organization(obj)
+        self.cache(obj)
         return obj
 
     def create_organization(
         self,
         name,
-        email,
+        email=None,
         collection_name=None,
         collection_key=None,
         plan_type=0,
@@ -1157,7 +1212,8 @@ class Client(object):
         if collection_name is None:
             collection_name = f"C: {name}"
         if collection_key is None:
-            collection_key = token_bytes(64)
+            collection_key = secrets.token_bytes(64)
+        email = email or self.email
         token = self.get_token(token)
         encoded_key = bwcrypto.encrypt_asym(collection_key, token["orgs_key"])
         encoded_collection_name = bwcrypto.encrypt_sym(collection_name, collection_key)
@@ -1165,7 +1221,7 @@ class Client(object):
             "key": encoded_key,
             "collectionName": encoded_collection_name,
             "name": name,
-            "billingEmail": email or self.email,
+            "billingEmail": email,
             "planType": plan_type,
         }
         log = f'Creating organization {data["name"]}/'
@@ -1173,16 +1229,17 @@ class Client(object):
         obj = self._upload_object(
             "/api/organizations", data, key=collection_key, log=log
         )
-        cache_organization(obj)
+        self.cache(obj)
         return obj
 
     def get_organization_key(self, orga, token=None, sync=None):
+        keys = self._cache["organizations"].setdefault("keys", {})
         if sync is None:
             sync = False
         if not isinstance(orga, Organization):
             orga = self.get_organization(orga, sync=sync)
         try:
-            return CACHE["okeys"][orga.id]
+            return keys[orga.id]
         except KeyError:
             token = self.get_token(token)
             for sync in [sync, True]:
@@ -1200,8 +1257,11 @@ class Client(object):
                 if enc_okey:
                     break
             if enc_okey:
-                okey = bwcrypto.decrypt(enc_okey, token["orgs_key"])
-                ret = CACHE["okeys"][orga.id] = enc_okey, okey
+                try:
+                    okey = bwcrypto.decrypt(enc_okey, token["orgs_key"])
+                except bwcrypto.DecryptError:
+                    self.broken_objs[orga.id] = enc_okey
+                ret = keys[orga.id] = enc_okey, okey
                 return ret
         exc = NoOrganizationKeyError(
             f"No encryption key for {orga.id}, please unlock or be confirmed"
@@ -1233,7 +1293,7 @@ class Client(object):
             key=k,
             method="put",
         )
-        cache_collection(obj)
+        self.cache(obj)
         return obj
 
     def create_orgcollection(
@@ -1256,26 +1316,25 @@ class Client(object):
     create_collection = create_orgcollection
     edit_collection = edit_orgcollection
 
-    def get_collections(self, scope=None, sync=None, cache=None, token=None):
+    def get_collections(self, orga=None, sync=None, cache=None, token=None):
         """
-        scope is either None for all or an orga(or orgaid)
+        orga is either None for all or an orga(or orgaid)
         """
         token = self.get_token(token)
-        if not scope:
-            sync_key = "all"
+        if not orga:
+            sync_key = SYNC_ALL_ORGAS_ID
         else:
-            orga = self.get_organization(scope)
-            sync_key = f"scope_{orga.id}"
-        _CACHE = CACHE["collections"]
+            orga = self.get_organization(orga)
+            sync_key = SYNC_ORGA_ID.format(orga.id)
+        _CACHE = self._cache["collections"]
         if sync is None:
             sync = False
         if cache is None:
             cache = True
-        if sync:
-            _CACHE.pop("raw", None)
         if cache is False or sync:
+            _CACHE["sync"] = False
             _CACHE.pop(sync_key, None)
-            _CACHE.pop("all", None)
+            _CACHE.pop(SYNC_ALL_ORGAS_ID, None)
         try:
             return _CACHE[sync_key]
         except KeyError:
@@ -1283,10 +1342,9 @@ class Client(object):
         #
         self.api_sync(sync=sync)
         #
-        ret = deepcopy(DEFAULT_CACHE)
         try:
-            ret = _CACHE["all"]
-        except KeyError:
+            assert _CACHE["sync"]
+        except AssertionError:
             for enccol in (
                 self.r("/api/collections", method="get").json().get("Data", [])
             ):
@@ -1294,16 +1352,18 @@ class Client(object):
                 _, colk = self.get_organization_key(col.organizationId, token=token)
                 col.name = bwcrypto.decrypt(col.name, colk).decode()
                 col.reflect()
-                ret = cache_collection(col)
+                self.cache_collection(col)
+            _CACHE["sync"] = True
         #
-        if scope:
-            orga = self.get_organization(scope)
+        if orga:
+            orga = self.get_organization(orga)
             for r in [
                 col
-                for col in _CACHE["all"]["id"].values()
+                for col in _CACHE[SYNC_ALL_ORGAS_ID]["id"].values()
                 if col.organizationId == orga.id
             ]:
-                ret = cache_collection(r, scope=sync_key)
+                self.cache_collection(r, cache_key=sync_key)
+        ret = self.cache_collection([], cache_key=sync_key)
         _CACHE[sync_key] = ret
         #
         return ret
@@ -1317,10 +1377,15 @@ class Client(object):
         orga=None,
         token=None,
     ):
+        _cols = collections
         criteria = [item_or_id_or_name, orga]
         token = self.get_token(token)
         if isinstance(item_or_id_or_name, Collection):
-            return item_or_id_or_name
+            if not sync:
+                return item_or_id_or_name
+            else:
+                item_or_id_or_name = item_or_id_or_name.id
+                externalId = None
         _id = self.item_or_id(item_or_id_or_name)
         if collections is None:
             if orga is None:
@@ -1333,13 +1398,25 @@ class Client(object):
             )
             exc.criteria = criteria
             raise exc
+        if isinstance(_id, str):
+            _id = _id.lower()
+        if isinstance(externalId, str):
+            externalId = externalId.lower()
         if _id:
             try:
                 return collections["id"][_id]
-            except KeyError:
+            except (KeyError, IndexError):
                 pass
             try:
-                return collections["name"][_id]
+                items = collections["name"][_id]
+                if len(items) > 1:
+                    exc = NoSingleCollectionForNameError(
+                        f"More that one collection with {_id} name."
+                    )
+                    exc.instance = items
+                    raise exc
+                for a, v in items.items():
+                    return v
             except KeyError:
                 pass
         if externalId:
@@ -1421,7 +1498,7 @@ class Client(object):
     ):
         vaultier = self.get_vaultier(vaultier)
         token = self.get_token(token=token)
-        scache = CACHE["ciphers"]
+        scache = self._cache["ciphers"]
         if sync or cache is False:
             scache.pop("sync", None)
         if orga:
@@ -1453,7 +1530,7 @@ class Client(object):
                     L.info(f'Cant decrypt cipher {cipher["Id"]}, broken ?')
             for cipher in dciphers:
                 obj = BWFactory.construct(cipher, client=self, unmarshall=True)
-                cache_cipher(obj, vaultier=vaultier)
+                self.cache(obj, vaultier=vaultier)
             scache["sync"] = True
         if collection:
             return scache["by_collection"].get(collection.id, {})
@@ -1582,7 +1659,7 @@ class Client(object):
             _, key = self.get_organization_key(oid)
         else:
             key = token["user_key"]
-        attachment_key = token_bytes(64)
+        attachment_key = secrets.token_bytes(64)
         encoded_attachment_key = bwcrypto.encrypt_sym(attachment_key, key)
         encoded_attachment_name = bwcrypto.encrypt_sym(fn, key)
         data = {"key": encoded_attachment_key}
@@ -1621,10 +1698,15 @@ class Client(object):
         token=None,
     ):
         if isinstance(item_or_id_or_name, Item):
-            return item_or_id_or_name
+            if not sync:
+                return item_or_id_or_name
+            else:
+                item_or_id_or_name = item_or_id_or_name.id
         vaultier = self.get_vaultier(vaultier)
         token = self.get_token(token)
         _id = f"{self.item_or_id(item_or_id_or_name)}"
+        if isinstance(_id, str):
+            _id = _id.lower()
         ret = None
         if collection:
             collection = self.get_collection(
@@ -1636,7 +1718,7 @@ class Client(object):
         )
         if vaultier:
             try:
-                ret = [s["vaultier"][_id]]
+                ret = [s["vaultiersecretid"][_id]]
             except KeyError:
                 pass
         if not ret:
@@ -1759,7 +1841,7 @@ class Client(object):
         kw["link"] = False
         return self.link(*a, **kw)
 
-    def delete(self, obj, typ=None, token=None):
+    def delete(self, obj, typ=None, token=None, **kw):
         token = self.get_token(token)
         if not typ:
             objtyp = get_type(obj)
@@ -1778,8 +1860,8 @@ class Client(object):
             name = sid
         assert _id
         data = {"masterPasswordHash": self.token["hashed_password"].decode()}
-        self.uncache(typ=typ, _id=_id, obj=obj)
         ret = {}
+        self.uncache(typ=typ, ids=_id, **kw)
         resp = self.r(f"/api/{typ}s/{_id}", token=token, method="delete", json=data)
         try:
             self.assert_bw_response(resp, expected_status_codes=[200, 404])
@@ -1791,29 +1873,39 @@ class Client(object):
             raise exc
         return ret
 
-    def uncache(self, typ=None, _id=None, obj=None):
-        ids = set()
-        assert typ or obj
+    def uncache(self, typ=None, ids=None, obj=None, cache=None, grandcaches=None, **kw):
+        if grandcaches is None:
+            grandcaches = []
+        if cache is None:
+            try:
+                assert typ or ids or (obj and isinstance(obj, BWFactory))
+            except AssertionError:
+                raise BitwardenUncacheError("neither cache or typ or id or obj or ids")
+        if not isinstance(ids, set):
+            ids = ids is not None and set(ids) or set()
+        if cache is None:
+            if isinstance(obj, BWFactory) and not typ:
+                typ = TYPMAPPER[get_type(obj, typ)].lower()
+            cache = self._cache[COLTYPMAPPER[typ]]
+        try:
+            assert cache is not None
+        except AssertionError:
+            raise BitwardenUncacheError("no cache selected")
         if isinstance(obj, BWFactory):
-            objtyp = get_type(obj, typ)
-            typ = TYPMAPPER.get(objtyp, "")
-        typ = typ.lower()
-        if _id:
-            ids.add(_id)
-        if obj:
             ids.add(obj.id)
-        if typ == "organization":
-            for u in ids:
-                CACHE["okeys"].pop(u, None)
-        caches = get_reverse_cache().get(typ, [])
-        if ids and caches:
-            for cache in caches:
-                # cache.pop(id_, None)
-                rcache = dict([(o.id, k) for k, o in cache.items()])
-                try:
-                    cache.pop(rcache[_id], None)
-                except KeyError:
-                    pass
+        if not ids:
+            _ = [ids.add(i) for i in cache.get("id", {})]
+        grandcaches.append(cache)
+        for k in [a for a in cache]:
+            subval = cache[k]
+            if isinstance(subval, dict):
+                self.uncache(
+                    ids=ids, typ=typ, cache=subval, grandcaches=grandcaches, **kw
+                )
+            elif isinstance(subval, BWFactory) and (subval.id in ids):
+                cache.pop(k, None)
+            elif k in ids:
+                cache.pop(k, None)
 
     def warm_templates(self):
         for i in ["collection", "org-collection", "item"]:
@@ -1840,52 +1932,54 @@ class Client(object):
             fic.write(data)
         return dest
 
-    def get_users(self, sync=None):
+    def get_users(self, sync=None, **kw):
         if sync is None:
             sync = False
-        cache = CACHE["users"]
+        cache = self._cache["users"]
         if sync:
-            pop_cache(cache)
+            cache.pop("sync", False)
         try:
-            cache["emails"]
-        except KeyError:
-            emails = cache.setdefault("emails", OrderedDict())
-            names = cache.setdefault("names", OrderedDict())
-            ids = cache.setdefault("ids", OrderedDict())
+            assert cache["sync"]
+        except (AssertionError, KeyError):
             resp = self.adminr("/users", method="get")
             self.assert_bw_response(resp, expected_status_codes=[200, 500])
             if resp.status_code in [500]:
-                pop_cache(cache)
+                self.uncache(cache, **kw)
                 json = []
             else:
                 json = resp.json()
             for user in json:
                 obj = BWFactory.construct(user, client=self, unmarshall=True)
-                emails[obj.email.lower()] = obj
-                names[obj.name.lower()] = obj
-                ids[obj.id.lower()] = obj
+                self.cache(obj)
+            cache["sync"] = True
         return cache
 
     def get_user(self, email=None, name=None, id=None, user=None, sync=None):
+        if email:
+            email = email.lower()
         if isinstance(user, Profile):
-            return user
+            if not sync:
+                return user
+            else:
+                id = user.id
+                email = name = user = None
         assert email or name or id
         cache = self.get_users(sync=sync)
         try:
             if not id:
                 raise KeyError()
-            return cache["ids"][id.lower()]
+            return cache["id"][id.lower()]
         except KeyError:
             try:
                 if not email:
                     raise KeyError()
-                return cache["emails"][email.lower()]
+                return cache["email"][email]
             except KeyError:
                 try:
                     if not name:
                         raise KeyError()
-                    return cache["names"][name.lower()]
-                except KeyError:
+                    return cache["name"][name.lower()][0]
+                except (IndexError, KeyError):
                     pass
         criteria = [email, name, id, user]
         exc = UserNotFoundError(f"user not found id:{id} / email:{email} / name:{name}")
@@ -1946,10 +2040,11 @@ class Client(object):
         L.info(f"Disabled user {user.email} / {user.name} / {user.id}")
         return resp
 
-    def delete_user(self, email=None, name=None, id=None, user=None, sync=True):
+    def delete_user(self, email=None, name=None, id=None, user=None, sync=True, **kw):
         user = self.get_user(email=email, name=name, id=id, user=user, sync=sync)
         resp = self.adminr(f"/users/{user.id}/delete")
         self.post_user_request(resp)
+        self.uncache(obj=user, **kw)
         L.info(f"Deleted user {user.email} / {user.name} / {user.id}")
         return resp
 
@@ -2091,15 +2186,32 @@ class Client(object):
             ret.append(obj)
         return ret[0:limit]
 
-    def warm(self, sync=True):
-        ciphers = self.get_ciphers(sync=sync)
-        orgas = self.get_organizations(sync=sync)
-        collections = self.get_collections(sync=sync)
-        return ciphers, collections, orgas
+    def warm(self, sync=None, collections=None, users=None, ciphers=None, orgas=None):
+        if (
+            sync is None
+            and collections is None
+            and ciphers is None
+            and orgas is None
+            and users is None
+        ):
+            sync = True
+        if sync is not None:
+            collections = ciphers = users = orgas = sync
+        ret = dict(
+            users=self.get_users(sync=users),
+            ciphers=self.get_ciphers(sync=ciphers),
+            orgas=self.get_organizations(sync=orgas),
+            collections=self.get_collections(sync=collections),
+        )
+        return ret
 
-
-class AlreadyExitingUserError(RunError):
-    """."""
+    def bust_cache(self):
+        for k in [a for a in self._cache]:
+            val = self._cache[k]
+            self._cache[k] = 0
+            del val
+            self._cache.pop(k, None)
+        self._cache.update(deepcopy(DEFAULT_BITWARDEN_CACHE))
 
 
 # vim:set et sts=4 ts=4 tw=120:
