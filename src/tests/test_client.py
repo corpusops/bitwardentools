@@ -391,6 +391,11 @@ class TestBitwardenInteg(unittest.TestCase):
             bwclient.UserNotFoundError, self.client.get_user, user=uid, sync=True
         )
 
+    def test_logincache(self):
+        self.client.login()
+        token = self.client.login()
+        self.assertTrue(token["_btw_login_count"] > 1)
+
     def test_bust(self):
         self.client.warm()
         test_cache = copy.deepcopy(self.client._cache)
