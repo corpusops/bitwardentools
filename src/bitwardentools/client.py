@@ -601,10 +601,19 @@ class Client(object):
         self.client_id = client_id
         self.client_uuid = client_uuid
         self.templates = {}
-        self.token = None
         self._cache = cache
+        self._tokens = {}
         if login:
-            self.token = self.login()
+            self.login()
+
+    @property
+    def token(self):
+        return self._tokens.get(self.email, None)
+
+    @token.setter
+    def token_set(self, value):
+        self._tokens[self.email] = value
+        return self._tokens[self.email]
 
     def adminr(
         self,
@@ -627,29 +636,22 @@ class Client(object):
             headers = {}
         return getattr(requests, method.lower())(url, headers=headers, *a, **kw)
 
-    def r(self, uri, method="post", headers=None, token=None, *a, **kw):
+    def r(self, uri, method="post", headers=None, token=None, retry=True, *a, **kw):
         url = uri
         if not url.startswith("http"):
             url = f"{self.server}{uri}"
         if headers is None:
             headers = {}
         if token is not False:
-            record = not token or not self.token
-            token = token or self.token
-            if not token:
-                token = self.login()
-            if record:
-                self.token = token
+            token = self.get_token(token)
             headers.update({"Authorization": f"Bearer {token['access_token']}"})
         resp = getattr(requests, method.lower())(url, headers=headers, *a, **kw)
-        if resp.status_code in [401] and token is not False:
+        if resp.status_code in [401] and token is not False and retry:
             L.debug(
                 f"Access denied, trying to retry after refreshing token for {token['email']}"
             )
-            ntoken = self.login(token["email"], token["password"])
-            if record and (token is self.token):
-                self.token = ntoken
-            headers.update({"Authorization": f"Bearer {ntoken['access_token']}"})
+            token = self.login(token["email"], token["password"])
+            headers.update({"Authorization": f"Bearer {token['access_token']}"})
             resp = getattr(requests, method.lower())(url, headers=headers, *a, **kw)
         return resp
 
@@ -661,6 +663,22 @@ class Client(object):
         grant_type="password",
     ):
         email = email or self.email
+        try:
+            token = self._tokens[email]
+        except KeyError:
+            pass
+        else:
+            # as token is already there, test if token is still usable
+            resp = self.r(
+                "/api/accounts/revision-date", token=token, retry=False, method="get"
+            )
+            try:
+                self.assert_bw_response(resp)
+            except ResponseError:
+                self._tokens.pop(email, None)
+            else:
+                token["_btw_login_count"] += 1
+                return token
         password = password or self.password
         data = self.r("/api/accounts/prelogin", json={"email": email}, token=False)
         jdata = data.json()
@@ -684,6 +702,7 @@ class Client(object):
             exc.response = data
             raise exc
         token = data.json()
+        token["_btw_login_count"] = 1
         token["iterations"] = iterations
         token["password"] = password
         token["hashed_password"] = hashed_password
@@ -692,6 +711,7 @@ class Client(object):
         for k, f in {"Key": "user_key", "PrivateKey": "orgs_key"}.items():
             key = k != "PrivateKey" and master_key or token.get("user_key")
             token[f] = bwcrypto.decrypt(token[k], key)
+        self._tokens[email] = token
         return token
 
     def item_or_id(self, item_or_id):
