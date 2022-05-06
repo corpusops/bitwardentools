@@ -1444,7 +1444,10 @@ class Client(object):
                 return collections["externalId"][externalId]
             except KeyError:
                 pass
-        exc = CollectionNotFound(f"No such collection found {_id}/{externalId}")
+        log = f"No such collection found {_id}/{externalId}"
+        if orga:
+            log += f' in orga: {orga.id}/{orga.name}'
+        exc = CollectionNotFound(log)
         exc.criteria = [_id, externalId, orga]
         raise exc
 
