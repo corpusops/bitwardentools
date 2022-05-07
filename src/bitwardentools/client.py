@@ -602,18 +602,18 @@ class Client(object):
         self.client_uuid = client_uuid
         self.templates = {}
         self._cache = cache
-        self._tokens = {}
+        self.tokens = {}
         if login:
             self.login()
 
     @property
     def token(self):
-        return self._tokens.get(self.email, None)
+        return self.tokens.get(self.email, None)
 
     @token.setter
     def token_set(self, value):
-        self._tokens[self.email] = value
-        return self._tokens[self.email]
+        self.tokens[self.email] = value
+        return self.tokens[self.email]
 
     def adminr(
         self,
@@ -664,7 +664,7 @@ class Client(object):
     ):
         email = email or self.email
         try:
-            token = self._tokens[email]
+            token = self.tokens[email]
         except KeyError:
             pass
         else:
@@ -675,7 +675,7 @@ class Client(object):
             try:
                 self.assert_bw_response(resp)
             except ResponseError:
-                self._tokens.pop(email, None)
+                self.tokens.pop(email, None)
             else:
                 token["_btw_login_count"] += 1
                 return token
@@ -711,7 +711,7 @@ class Client(object):
         for k, f in {"Key": "user_key", "PrivateKey": "orgs_key"}.items():
             key = k != "PrivateKey" and master_key or token.get("user_key")
             token[f] = bwcrypto.decrypt(token[k], key)
-        self._tokens[email] = token
+        self.tokens[email] = token
         return token
 
     def item_or_id(self, item_or_id):
