@@ -125,6 +125,9 @@ user, pw = client.create_user('foo@bar.com', password=, passwordhint=, name=)
 # the user will be automatically validated
 # you can manually validate an account with:
 user = client.validate('foo@bar.com')
+# you can also manage orgs invitations
+acl = client.accept_invitation('foo@bar.com', orga)
+acl = client.confirm_invitation('foo@bar.com', orga)
 ```
 
 ### encode the bitwarden_rs key for autovalidating user
