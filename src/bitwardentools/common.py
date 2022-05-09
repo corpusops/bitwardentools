@@ -31,15 +31,27 @@ EXPORT_DIR = os.environ.get("VAULTIER_EXPORT_DIR", "/w/data/export")
 L = logging.getLogger("passwords")
 LOGLEVEL = os.environ.get("LOGLEVEL", "info").upper()
 REQUEST_DEBUG = as_bool(os.environ.get("REQUEST_DEBUG", ""))
+_vars = {"debug": False}
+
+
+def toggle_debug(activate=None, debuglevel=logging.DEBUG, errorlevel=logging.INFO):
+    if activate is None:
+        activate = not _vars["debug"]
+    dl = debuglevel <= logging.DEBUG and 1 or 0
+    lvl = activate and debuglevel or errorlevel
+    HTTPConnection.debuglevel = dl
+    req_log = logging.getLogger("requests.packages.urllib3")
+    req_log.setLevel(lvl)
+    req_log.propagate = activate
+    _vars["debug"] = activate
+    logging.getLogger("").setLevel(lvl)
+    return activate
 
 
 def setup_logging(loglevel=LOGLEVEL):
     logging.basicConfig(level=getattr(logging, loglevel))
-    if REQUEST_DEBUG:
-        HTTPConnection.debuglevel = 1
-        req_log = logging.getLogger("requests.packages.urllib3")
-        req_log.setLevel(logging.DEBUG)
-        req_log.propagate = True
+    debuglvl = REQUEST_DEBUG and logging.DEBUG or logging.INFO
+    toggle_debug(True, debuglevel=debuglvl)
 
 
-# vim:set et sts=4 ts=4 tw=80:
+# vim:set et sts=4 ts=4 tw=0:
