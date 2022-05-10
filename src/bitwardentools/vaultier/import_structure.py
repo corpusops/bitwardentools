@@ -13,6 +13,7 @@ import bitwardentools
 from bitwardentools import Client, L, as_bool
 from bitwardentools import client as bwclient
 from bitwardentools import sanitize
+from bitwardentools.vaultier import AS_SINGLE_ORG
 
 bitwardentools.setup_logging()
 JSON = os.environ.get("VAULTIER_JSON", "data/export/vaultier.json")
@@ -23,7 +24,7 @@ JSON = os.environ.get("VAULTIER_JSON", "data/export/vaultier.json")
 @click.option("--server", default=bitwardentools.SERVER)
 @click.option("--email", default=bitwardentools.EMAIL)
 @click.option("--password", default=bitwardentools.PASSWORD)
-@click.option("--assingleorg", " /-S", default=True, is_flag=True)
+@click.option("--assingleorg", " /-S", default=AS_SINGLE_ORG, is_flag=True)
 def main(jsonf, server, email, password, assingleorg):
     L.info("start")
     client = Client(server, email, password)
