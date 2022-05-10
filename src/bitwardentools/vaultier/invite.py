@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import absolute_import, division, print_function
 
+import copy
 import json
 import os
 import re
@@ -11,112 +12,331 @@ from multiprocessing import Pool
 
 import click
 
-import bitwardentools as bwclient
-from bitwardentools import Client, L, as_bool
-from bitwardentools import crypto as bwcrypto
+import bitwardentools
+from bitwardentools import (
+    EXPORT_DIR,
+    VAULTIER_SECRET,
+    Client,
+    L,
+    NoAttachmentsError,
+    SecretNotFound,
+    as_bool,
+)
+from bitwardentools import client as bwclient
 from bitwardentools import sanitize
+from bitwardentools.vaultier import AS_SINGLE_ORG
 
-bwclient.setup_logging()
+bitwardentools.setup_logging()
 JSON = os.environ.get("VAULTIER_JSON", "data/export/vaultier.json")
-PASSWORDS = os.environ.get("VAULTIER_PASSWORDS", "data/export/vaultierpasswords.json")
 BW_ORGA_NAME = os.environ.get("BW_ORGA_NAME", "bitwarden")
-DONE = {"constructed": OrderedDict(), "errors": OrderedDict()}
+DONE = {"contructed": OrderedDict(), "errors": OrderedDict()}
+SKIPPED_USERS = os.environ.get("BITWARDEN_VAULTIER_SKIP_USERS", "[+]old[^@]+@").strip()
+AL = bwclient.CollectionAccess
 
 
 class NameNotFound(RuntimeError):
     """."""
 
 
-def record(client, email, secretd, constructed):
+def add_to_collection(client, email, cid, aclargs):
+    collection = aclargs["collection"]
     try:
-        user = client.get_user(email=email)
-        if not user.emailVerified:
-            user = client.validate(email)
-        return user, secretd["password"]
-    except bwclient.UserNotFoundError:
-        pass
-    try:
-        return client.create_user(
-            email, name=email.split("@")[0], password=secretd["password"]
+        L.info(f"Adding {email} to {collection.name}/{collection.id}")
+        ret = client.set_collection_access(
+            email, aclargs["collection"], **aclargs["payload"]
         )
+        return {(email, cid): ret}
     except Exception as exc:
         trace = traceback.format_exc()
-        print(trace)
-        sid = email
-        L.error(f"Error while creating {sid}\n{trace}")
-        DONE["errors"][sid] = exc
+        L.error(f"Error while creating {email}\n{collection.name}\n{trace}")
+        DONE["errors"][(email, cid)] = (exc, trace)
+
+
+def add_to_orga(client, email, oid, aclargs):
+    orga = aclargs["orga"]
+    try:
+        L.info(f"Adding {email} to {orga.name}/{orga.id}")
+        ret = client.set_organization_access(
+            email, aclargs["orga"], **aclargs["payload"]
+        )
+        return {(email, oid): ret}
+    except Exception as exc:
+        trace = traceback.format_exc()
+        L.error(f"Error while creating {email}\n{orga.name}\n{trace}")
+        DONE["errors"][(email, oid)] = (exc, trace)
+
+
+def do_accept_invitations(client, email, oid, aclargs):
+    orga = aclargs["orga"]
+    try:
+        L.info(f"Confirm invitation of {email} to {orga.name}/{orga.id}")
+        ret = client.accept_invitation(aclargs["orga"], email)
+        return {(email, oid): ret}
+    except Exception as exc:
+        trace = traceback.format_exc()
+        L.error(f"Error while inviting {email}\n{orga.name}\n{trace}")
+        DONE["errors"][(email, oid)] = (exc, trace)
+
+
+def do_confirm_invitations(client, email, oid, aclargs):
+    orga = aclargs["orga"]
+    try:
+        L.info(f"Confirming {email} to {orga.name}/{orga.id}")
+        ret = client.confirm_invitation(aclargs["orga"], email)
+        return {(email, oid): ret}
+    except Exception as exc:
+        trace = traceback.format_exc()
+        L.error(f"Error while confirming {email}\n{orga.name}\n{trace}")
+        DONE["errors"][(email, oid)] = (exc, trace)
 
 
 @click.command()
 @click.argument("jsonf", default=JSON)
-@click.argument("passwordsf", default=PASSWORDS)
-@click.argument("skippedusers", default="\\+.*@")
-def main(jsonf, passwordsf, skippedusers):
-    if skippedusers:
-        skippedusers = re.compile(skippedusers, flags=re.I | re.M)
+@click.option("--server", default=bitwardentools.SERVER)
+@click.option("--email", default=bitwardentools.EMAIL)
+@click.option("--password", default=bitwardentools.PASSWORD)
+@click.option("--assingleorg", " /-S", default=AS_SINGLE_ORG, is_flag=True)
+@click.option("--skippedusers", default=SKIPPED_USERS)
+def main(jsonf, server, email, password, assingleorg, skippedusers):
+    skipped_users_re = re.compile(skippedusers)
     L.info("start")
-    client = Client()
+    client = Client(vaultier=True)
+    if skippedusers:
+        skippedusers = re.compile(skippedusers)
     client.sync()
-    vaultier_members = {}
-
+    users_orgas = {}
+    users_collections = {}
+    caccesses = {}
+    al = set()
+    orgas = {}
     for jsonff in jsonf.split(":"):
         with open(jsonff) as fic:
             data = json.load(fic)
-        # optim: load all secrets once
-        for vdata in data["vaults"]:
+        orga = OrderedDict()
+        collections = None
+        oacls = data["acls"]
+        if assingleorg:
+            organ = data["name"]
+            orga = client.get_organization(organ)
+            collections = client.get_collections(orga=orga, sync=True)
+        else:
+            oacls = OrderedDict([(k, v) for k, v in oacls.items() if v >= 200])
+        coacls = oacls
+        for iv, vdata in enumerate(data["vaults"]):
+            if collections is None:
+                collections = client.get_collections(orga=orga, sync=True)
             v = vdata["name"]
-            for i in vdata["acls"]:
-                vaultier_members.setdefault(i, {})
+            vacls = vdata["acls"]
+            if not vdata["cards"]:
+                L.info(f"Skipping {v} as it has no cards")
+                continue
+            if not assingleorg:
+                orga = client.get_organization(v)
+                coacls = copy.deepcopy(oacls)
+                coacls.update(vacls)
+            oadmins = [a for a in coacls if coacls[a] == 200]
+            eorga = orgas.setdefault(orga.id, {"orga": orga, "emails": set()})
+            for email, acle in coacls.items():
+                if skipped_users_re.search(email):
+                    log = f"{email} is old user, skipping"
+                    continue
+                payload = {}
+                payload["access_level"] = AL.admin
+                if int(acle) >= 200:
+                    payload["accessAll"] = True
+                if skippedusers and skippedusers.search(email):
+                    L.info(f"{email} is skipped")
+                    continue
+                log = None
+                eorga["emails"].add(email)
+                try:
+                    uaccess = client.get_accesses({"user": email, "orga": orga})
+                except bwclient.NoAccessError:
+                    bwacl = None
+                else:
+                    oaccess = uaccess["oaccess"]
+                    bwacl = oaccess["daccess"].get("email", None)
+                if (
+                    bwacl
+                    and (bwacl["Type"] in [AL.admin, AL.manager])
+                    and (payload["access_level"] == bwacl["Type"])
+                ):
+                    log = f"User {email} is already in orga {orga.name} with right acls"
+                if log:
+                    if log not in al:
+                        L.info(log)
+                    al.add(log)
+                    continue
+                access = {"orga": orga, "payload": payload}
+                ak = (orga.id, email)
+                users_orgas[ak] = access
             for cdata in vdata["cards"]:
-                c = cdata["name"]
-                for i in cdata["acls"]:
-                    vaultier_members.setdefault(i, {})
-                n = sanitize(f"{v} {c}")
-                for ix, secret in enumerate(cdata["secrets"]):
-                    pass
+                cn = sanitize(cdata["name"])
+                vc = cn
+                if assingleorg:
+                    vc = f"{v} {cn}"
+                collection = client.get_collection(
+                    vc, collections=collections, orga=orga
+                )
+                try:
+                    caccess = caccesses[collection.id]
+                except KeyError:
+                    caccess = caccesses[collection.id] = client.get_accesses(collection)
+                cacls = copy.deepcopy(vacls)
+                cacls.update(cdata["acls"])
+                for i, cacl in cacls.items():
+                    if skippedusers and skippedusers.search(i):
+                        L.info(f"{i} is skipped")
+                        continue
+                    log = None
+                    if i in oadmins:
+                        continue
+                    if skipped_users_re.search(i):
+                        log = f"{i} is old user, skipping"
+                    if i in caccess["emails"]:
+                        log = f"User {i} is already in collection {collection.name}"
+                    if log:
+                        if log not in al:
+                            L.info(log)
+                        al.add(log)
+                        continue
+                    payload = {}
+                    access = {"collection": collection, "payload": payload}
+                    ak = (collection.id, i)
+                    users_collections[ak] = access
 
-    # unload skipped users
-    for i in [a for a in vaultier_members]:
-        if skippedusers and skippedusers.search(i):
-            L.info(f"Skip {i}")
-            vaultier_members.pop(i, None)
-
-    # assign passwords
-    if os.path.exists(passwordsf):
-        with open(passwordsf, "r") as fic:
-            passwords = json.loads(fic.read())
-    else:
-        passwords = {}
-
-    for i, idata in vaultier_members.items():
-        try:
-            pw = passwords[i]
-        except KeyError:
-            pw = passwords[i] = bwcrypto.gen_password()
-        vaultier_members[i]["password"] = pw
-
-    with open(passwordsf, "w") as fic:
-        json.dump(passwords, fic, indent=2, sort_keys=True)
-    constructed = DONE["constructed"]
     # either create or edit passwords
     parallel = as_bool(os.environ.get("BW_PARALLEL_IMPORT", "1"))
     # parallel = False
     processes = int(os.environ.get("BW_PARALLEL_IMPORT_PROCESSES", "10"))
-    items = []
-    for n, secretd in vaultier_members.items():
-        items.append((client, n, secretd, constructed))
+
+    constructed = OrderedDict()
+
+    # invite users to orga
+    record = add_to_orga
+    # users_orgas = dict([(k, users_orgas[k]) for i, k in enumerate(users_orgas) if i<3])
+    L.info("add_to_orga")
     if parallel:
         with Pool(processes=processes) as pool:
-            res = pool.starmap_async(record, items)
+            res = pool.starmap_async(
+                record,
+                [
+                    (client, email, oid, aclargs)
+                    for (oid, email), aclargs in users_orgas.items()
+                ],
+            )
             res.wait()
             for ret in res.get():
                 if not ret:
                     continue
-                constructed[ret[0].id] = ret
+                constructed.update(ret)
     else:
-        for n, secretd in vaultier_members.items():
-            record(client, n, secretd, constructed)
+        for (oid, email), aclargs in users_orgas.items():
+            ret = record(client, email, oid, aclargs)
+            if not ret:
+                continue
+            constructed.update(ret)
 
+    # invite users to collection
+    record = add_to_collection
+    L.info("add_to_collection")
+    # users_collections = dict([(k, users_collections[k]) for i, k in enumerate(users_collections) if i < 13])
+    if parallel:
+        with Pool(processes=processes) as pool:
+            res = pool.starmap_async(
+                record,
+                [
+                    (client, email, cid, aclargs)
+                    for (cid, email), aclargs in users_collections.items()
+                ],
+            )
+            res.wait()
+            for ret in res.get():
+                if not ret:
+                    continue
+                constructed.update(ret)
+    else:
+        for (cid, email), aclargs in users_collections.items():
+            ret = record(client, email, cid, aclargs)
+            if not ret:
+                continue
+            constructed.update(ret)
+
+    # autoaccept user invitation
+    accept_invitations = OrderedDict()
+    for orga, odata in orgas.items():
+        oaccess = client.get_accesses(odata["orga"])
+        for email in odata["emails"]:
+            try:
+                acl = oaccess["daccess"][email]
+            except KeyError:
+                continue
+            else:
+                # status: Invited = 0, Accepted = 1, Confirmed = 2,
+                if acl["status"] == 0:
+                    accept_invitations[(orga, email)] = {"orga": odata["orga"]}
+
+    record = do_accept_invitations
+    L.info("do_accept_invitations")
+    # users_collections = dict([(k, users_collections[k]) for i, k in enumerate(users_collections) if i < 13])
+    if parallel:
+        with Pool(processes=processes) as pool:
+            res = pool.starmap_async(
+                record,
+                [
+                    (client, email, oid, aclargs)
+                    for (oid, email), aclargs in accept_invitations.items()
+                ],
+            )
+            res.wait()
+            for ret in res.get():
+                if not ret:
+                    continue
+                constructed.update(ret)
+    else:
+        for (oid, email), aclargs in accept_invitations.items():
+            ret = record(client, email, oid, aclargs)
+            if not ret:
+                continue
+            constructed.update(ret)
+
+    # autoconfirm user invitation
+    confirm_invitations = OrderedDict()
+    for orga, odata in orgas.items():
+        oaccess = client.get_accesses(odata["orga"])
+        for email in odata["emails"]:
+            try:
+                acl = oaccess["daccess"][email]
+            except KeyError:
+                continue
+            else:
+                # status: Invited = 0, Accepted = 1, Confirmed = 2,
+                if acl["status"] == 1:
+                    confirm_invitations[(orga, email)] = {"orga": odata["orga"]}
+
+    record = do_confirm_invitations
+    L.info("do_confirm_invitations")
+    # users_collections = dict([(k, users_collections[k]) for i, k in enumerate(users_collections) if i < 13])
+    if parallel:
+        with Pool(processes=processes) as pool:
+            res = pool.starmap_async(
+                record,
+                [
+                    (client, email, oid, aclargs)
+                    for (oid, email), aclargs in confirm_invitations.items()
+                ],
+            )
+            res.wait()
+            for ret in res.get():
+                if not ret:
+                    continue
+                constructed.update(ret)
+    else:
+        for (oid, email), aclargs in confirm_invitations.items():
+            ret = record(client, email, oid, aclargs)
+            if not ret:
+                continue
+            constructed.update(ret)
     return constructed
 
 
