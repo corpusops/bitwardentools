@@ -1,6 +1,7 @@
 ## CHANGES
 
 ### 1.0.47
+- vaultier migration: add notify script
 - vaultier migration: finish cycle
 - Add orga/collection memberships managment methods
 - Rename tokens attribute

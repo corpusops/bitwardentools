@@ -175,13 +175,13 @@ time python src/bitwardentools/vaultier/import_structure.py
 time python src/bitwardentools/vaultier/sync_secrets.py
 ```
 
-### load vaultier json members as bitwarden users Profiles
+### load vaultier json members as bitwarden users Profiles and tie them to their secrets
 ```sh
 python src/bitwardentools/vaultier/invite.py
 ```
-### link users to their relative orga/collections as on vaultier
+### Notify users of their accounts
 ```sh
-python src/bitwardentools/vaultier/acls.py
+python src/bitwardentools/vaultier/notify.py --dry-run=0
 ```
 
 ### Security note
