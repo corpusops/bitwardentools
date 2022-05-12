@@ -15,10 +15,10 @@ import bitwardentools as bwclient
 from bitwardentools import Client, L, as_bool
 from bitwardentools import crypto as bwcrypto
 from bitwardentools import sanitize
+from bitwardentools.vaultier import PASSWORDS
 
 bwclient.setup_logging()
 JSON = os.environ.get("VAULTIER_JSON", "data/export/vaultier.json")
-PASSWORDS = os.environ.get("VAULTIER_PASSWORDS", "data/export/vaultierpasswords.json")
 BW_ORGA_NAME = os.environ.get("BW_ORGA_NAME", "bitwarden")
 DONE = {"constructed": OrderedDict(), "errors": OrderedDict()}
 
