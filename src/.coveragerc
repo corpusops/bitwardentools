@@ -1,3 +1,6 @@
 [run]
 source = .
 omit = tests/*
+       bitwardentools/vaultier/*
+       bitwardentools/create_and_notify.py
+       bitwardentools/disable_user.py

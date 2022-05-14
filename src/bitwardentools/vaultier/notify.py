@@ -9,7 +9,8 @@ import click
 
 import bitwardentools
 from bitwardentools import L, as_bool, notify_access
-from bitwardentools.vaultier import MAIL_LANG, PASSWORDS
+from bitwardentools import MAIL_LANG
+from bitwardentools.vaultier import PASSWORDS
 
 bitwardentools.setup_logging()
 JSON = os.environ.get("VAULTIER_JSON", "data/export/vaultier.json")
@@ -52,7 +53,6 @@ def main(
             login,
             password,
             server,
-            passwordsf,
             mail_lang,
             tls,
             dry_run,
