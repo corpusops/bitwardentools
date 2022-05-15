@@ -13,15 +13,7 @@ from multiprocessing import Pool
 import click
 
 import bitwardentools
-from bitwardentools import (
-    EXPORT_DIR,
-    VAULTIER_SECRET,
-    Client,
-    L,
-    NoAttachmentsError,
-    SecretNotFound,
-    as_bool,
-)
+from bitwardentools import Client, L, as_bool
 from bitwardentools import client as bwclient
 from bitwardentools import sanitize
 from bitwardentools.vaultier import AS_SINGLE_ORG

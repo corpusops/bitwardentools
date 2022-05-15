@@ -20,9 +20,8 @@ from bitwardentools import (
     NoAttachmentsError,
     SecretNotFound,
     as_bool,
+    sanitize,
 )
-from bitwardentools import client as bwclient
-from bitwardentools import sanitize
 from bitwardentools.vaultier import AS_SINGLE_ORG
 
 bitwardentools.setup_logging()
