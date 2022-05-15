@@ -1509,7 +1509,6 @@ class Client(object):
         orga=None,
         token=None,
     ):
-        _cols = collections
         criteria = [item_or_id_or_name, orga]
         token = self.get_token(token)
         if orga:

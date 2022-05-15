@@ -8,8 +8,7 @@ import os
 import click
 
 import bitwardentools
-from bitwardentools import L, as_bool, notify_access
-from bitwardentools import MAIL_LANG
+from bitwardentools import MAIL_LANG, L, as_bool, notify_access
 from bitwardentools.vaultier import PASSWORDS
 
 bitwardentools.setup_logging()
