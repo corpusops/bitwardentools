@@ -264,6 +264,7 @@ class TestBitwardenInteg(unittest.TestCase):
 
     def test_patch(self):
         client = self.client
+        client.warm(sync=True)
         # Patch existing objects
         n = self.orga.name
         ret = client.edit_organization(self.orga, name="tooorg")
@@ -280,17 +281,20 @@ class TestBitwardenInteg(unittest.TestCase):
         ret = client.edit_orgcollection(self.col, name=n)
         item = client.search_objects({"id": self.col.id}, sync=True)[0]
         self.assertEqual(item.name, n)
-        #
-        n = self.oseci.notes
-        ret = client.edit_item(self.oseci, notes="toosec")
+
+        # be sure to get latest release of the cipher
+        secitem = client.search_objects({"id": self.oseci.id}, sync=True)[0]
+        n = secitem.notes
+        ret = client.edit_item(secitem, notes="toosec")
         self.assertEqual(ret.notes, "toosec")
-        ret = client.edit_item(self.oseci, notes=n)
-        item = client.search_objects({"id": self.oseci.id}, sync=True)[0]
+        ret = client.edit_item(ret, notes=n)
+        item = client.search_objects({"id": secitem.id}, sync=True)[0]
         self.assertEqual(item.notes, n)
 
     def test_ciphers(self):
         client = self.client
         # Play with ciphers
+        client.warm(sync=True)
         all_ciphers = client.get_ciphers(collection=self.col)
         cipher = [a for a in all_ciphers["id"].values()][0]
         # Put cipther in collection col2
@@ -594,13 +598,9 @@ class TestBitwardenInteg(unittest.TestCase):
         c.set_organization_access(self.user2[0], o, self.colc, hidepasswords=False)
         c.set_organization_access(self.user3[0], o, self.colc, hidepasswords=True)
         a0 = c.get_accesses(self.colc)
-        self.assertEqual(
-            strip_dict_data(a0["access"]),
-            [
-                {"hidePasswords": False, "readOnly": False},
-                {"hidePasswords": True, "readOnly": False},
-            ],
-        )
+        self.assertTrue(a0["daccess"][self.user2[0].email]["hidePasswords"] is False)
+        self.assertTrue(a0["daccess"][self.user3[0].email]["hidePasswords"] is True)
+        self.assertEqual(len(strip_dict_data(a0["access"])), 2)
         #
         c.set_organization_access(
             self.user1[0], o, collections=self.colc, hidepasswords=False
