@@ -4,6 +4,8 @@ This package containers a python3+ client for bitwarden which uses both a native
 
 The ultimate goal is certainly only to rely on python implementation against the bitwarden_rs server implementation.
 
+- [![.github/workflows/cicd.yml](https://github.com/corpusops/bitwardentools/actions/workflows/cicd.yml/badge.svg?branch=main)](https://github.com/corpusops/bitwardentools/actions/workflows/cicd.yml)
+
 ## Features
 - api controllable client
 - Create, Read, Update, Delete,  on organizations, collection, ciphers, users (also disable/enable), and attachments
