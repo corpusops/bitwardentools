@@ -33,7 +33,7 @@ class NameNotFound(RuntimeError):
 def add_to_collection(client, email, cid, aclargs):
     collection = aclargs["collection"]
     try:
-        L.info(f"Adding {email} to {collection.name}/{collection.id}")
+        L.info(f"Adding {email} to collection: {collection.name}/{collection.id}")
         ret = client.set_collection_access(
             email, aclargs["collection"], **aclargs["payload"]
         )
@@ -47,7 +47,7 @@ def add_to_collection(client, email, cid, aclargs):
 def add_to_orga(client, email, oid, aclargs):
     orga = aclargs["orga"]
     try:
-        L.info(f"Adding {email} to {orga.name}/{orga.id}")
+        L.info(f"Adding {email} to orga: {orga.name}/{orga.id}")
         ret = client.set_organization_access(
             email, aclargs["orga"], **aclargs["payload"]
         )
@@ -147,11 +147,11 @@ def main(jsonf, server, email, password, assingleorg, skippedusers):
                     bwacl = None
                 else:
                     oaccess = uaccess["oaccess"]
-                    bwacl = oaccess["daccess"].get("email", None)
+                    bwacl = oaccess["daccess"].get(email, None)
                 if (
                     bwacl
-                    and (bwacl["Type"] in [AL.admin, AL.manager])
-                    and (payload["access_level"] == bwacl["Type"])
+                    and (bwacl["type"] in [AL.admin, AL.manager])
+                    and (payload["access_level"] == bwacl["type"])
                 ):
                     log = f"User {email} is already in orga {orga.name} with right acls"
                 if log:
@@ -176,17 +176,18 @@ def main(jsonf, server, email, password, assingleorg, skippedusers):
                     caccess = caccesses[collection.id] = client.get_accesses(collection)
                 cacls = copy.deepcopy(vacls)
                 cacls.update(cdata["acls"])
-                for i, cacl in cacls.items():
-                    if skippedusers and skippedusers.search(i):
-                        L.info(f"{i} is skipped")
+                for email, cacl in cacls.items():
+                    eorga["emails"].add(email)
+                    if skippedusers and skippedusers.search(email):
+                        L.info(f"{email} is skipped")
                         continue
                     log = None
-                    if i in oadmins:
+                    if email in oadmins:
                         continue
-                    if skipped_users_re.search(i):
-                        log = f"{i} is old user, skipping"
-                    if i in caccess["emails"]:
-                        log = f"User {i} is already in collection {collection.name}"
+                    if skipped_users_re.search(email):
+                        log = f"{email} is old user, skipping"
+                    if email in caccess["emails"]:
+                        log = f"User {email} is already in collection {collection.name}"
                     if log:
                         if log not in al:
                             L.info(log)
@@ -194,7 +195,8 @@ def main(jsonf, server, email, password, assingleorg, skippedusers):
                         continue
                     payload = {}
                     access = {"collection": collection, "payload": payload}
-                    ak = (collection.id, i)
+                    ak = (collection.id, email)
+                    caccess = caccesses[collection.id] = client.get_accesses(collection)
                     users_collections[ak] = access
 
     # either create or edit passwords
