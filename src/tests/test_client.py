@@ -523,16 +523,17 @@ class TestBitwardenInteg(unittest.TestCase):
         )
         self.assertEqual(
             list(sorted(accesses[self.col4.id]["emails"].keys())),
-            ["foo@org.comsimple2", "foo@org.comsimple3"],
+            ["foo@org.com", "foo@org.comsimple2", "foo@org.comsimple3"],
         )
         self.assertEqual(
             list(sorted(accesses[self.col4.id]["emailsr"].values())),
-            ["foo@org.comsimple2", "foo@org.comsimple3"],
+            ["foo@org.com", "foo@org.comsimple2", "foo@org.comsimple3"],
         )
         #
         self.assertEqual(
             strip_dict_data(list(accesses[self.col4.id]["daccessr"].values())),
             [
+                {"hidePasswords": False, "readOnly": False},
                 {"hidePasswords": False, "readOnly": True},
                 {"hidePasswords": False, "readOnly": True},
             ],
@@ -540,6 +541,7 @@ class TestBitwardenInteg(unittest.TestCase):
         self.assertEqual(
             strip_dict_data(list(accesses[self.col4.id]["daccess"].values())),
             [
+                {"hidePasswords": False, "readOnly": False},
                 {"hidePasswords": False, "readOnly": True},
                 {"hidePasswords": False, "readOnly": True},
             ],
@@ -549,7 +551,7 @@ class TestBitwardenInteg(unittest.TestCase):
             list(
                 sorted(strip_dict_data(list(accesses[self.col4.id]["daccess"].keys())))
             ),
-            ["foo@org.comsimple2", "foo@org.comsimple3"],
+            ["foo@org.com", "foo@org.comsimple2", "foo@org.comsimple3"],
         )
         self.assertEqual(
             list(
@@ -653,6 +655,7 @@ class TestBitwardenInteg(unittest.TestCase):
         self.assertEqual(
             list(sorted(ar0b["emails"])),
             [
+                "foo@org.com",
                 "foo@org.comsimple1",
                 "foo@org.comsimple2",
                 "foo@org.comsimple3",
@@ -660,7 +663,8 @@ class TestBitwardenInteg(unittest.TestCase):
             ],
         )
         self.assertEqual(
-            list(sorted(ar0["emails"])), ["foo@org.comsimple1", "foo@org.comsimple4"]
+            list(sorted(ar0["emails"])),
+            ["foo@org.com", "foo@org.comsimple1", "foo@org.comsimple4"],
         )
 
     def test_set_collection_access(self):

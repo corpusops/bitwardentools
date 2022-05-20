@@ -2468,6 +2468,18 @@ class Client(object):
                     acls = access.get("collections", [])
                 else:
                     acls = access.get("data", [])
+            if isinstance(o, Collection):
+                for email, i in oaccess["daccess"].items():
+                    if i.get("accessAll", False):
+                        emails[email] = i["id"]
+                        emailsr[i["id"]] = email
+                        coacl = {
+                            "id": i["id"],
+                            "readOnly": False,
+                            "hidePasswords": False,
+                        }
+                        daccessr[i["id"]] = coacl
+                        daccess[email] = coacl
             if acls:
                 for i in acls:
                     if isinstance(o, Organization):
