@@ -1,5 +1,9 @@
 ## CHANGES
 
+### 1.0.49
+- complete vaultier `AS_SINGLE_ORG=false` acls
+- feed collections accesses also with global `accessAll=true` users.
+
 ### 1.0.47
 - vaultier migration: add notify script
 - vaultier migration: finish cycle
