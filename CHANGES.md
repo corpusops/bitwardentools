@@ -1,5 +1,9 @@
 ## CHANGES
 
+### 1.0.53
+- kdfIterations payload change fix [kiorky]
+- add delete_user [kiorky]
+
 ### 1.0.51
 - Do not need private key for confirming users
   [Didier 'OdyX' Raboud <didier.raboud@liip.ch>]
