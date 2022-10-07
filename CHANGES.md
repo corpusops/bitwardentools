@@ -1,5 +1,8 @@
 ## CHANGES
 
+### 1.0.55
+- ensure requests is in requirements [kiorky]
+
 ### 1.0.54
 - bugfix: exclude folderId from getting encrypted [Thomas Kriechbaumer <thomas@kriechbaumer.name>]
 

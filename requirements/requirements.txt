@@ -5,6 +5,7 @@ click
 hkdf
 pycryptodome
 pyjwt[crypto]
+requests>=2.13.0
 
 ## dev
 # https://github.com/ipython/ipython/issues/12740
