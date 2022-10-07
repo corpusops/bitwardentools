@@ -1070,6 +1070,7 @@ class Client(object):
             for k, v in val.items():
                 if k not in [
                     "id",
+                    "folderId",
                     "organizationId",
                     "lastKnownRevisionDate",
                     "revisionDate",
