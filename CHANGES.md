@@ -1,5 +1,8 @@
 ## CHANGES
 
+### 1.0.54
+- bugfix: exclude folderId from getting encrypted [Thomas Kriechbaumer <thomas@kriechbaumer.name>]
+
 ### 1.0.53
 - kdfIterations payload change fix [kiorky]
 - add delete_user [kiorky]
