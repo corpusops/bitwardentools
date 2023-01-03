@@ -1037,6 +1037,7 @@ class Client(object):
                 return self.finish_orga(v, token=token, cache=cache, complete=complete)
         except KeyError:
             pass
+        import pdb;pdb.set_trace()
         exc = OrganizationNotFound(f"No such organization found {orga}")
         exc.criteria = [orga]
         raise exc

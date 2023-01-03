@@ -21,7 +21,7 @@ PASSWORDS = os.environ.get("BW_PASSWORDS_JSON", "data/passwords.json")
 @click.option("--login")
 @click.option("--password", default="")
 @click.option(
-    "--register-to", default=os.environ.get("BW_ORGAS_REGISTER_TO", "").split(":")
+    "--register-to", default=os.environ.get("BW_ORGAS_REGISTER_TO", "")
 )
 @click.option("--server", default=bitwardentools.SERVER)
 @click.option("--mail-lang", default=MAIL_LANG)
@@ -90,7 +90,7 @@ def main(
         client.create_user(
             login, name=login.split("@")[0], password=password, auto_validate=True
         )
-    for i in register_to:
+    for i in register_to.split(':'):
         client.set_organization_access(
             login, i, access_level=bwclient.CollectionAccess.admin, accessAll=True
         )
