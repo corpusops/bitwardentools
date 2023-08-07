@@ -685,6 +685,7 @@ class Client(object):
         login=True,
         cache=None,
         vaultier=False,
+        authentication_cb=None
     ):
         # goal is to allow shared cache amongst client instances
         # but also if we want totally isolated caches
@@ -715,6 +716,7 @@ class Client(object):
         self.templates = {}
         self._cache = cache
         self.tokens = {}
+        self.authentication_cb = authentication_cb
         if login:
             self.login()
 
@@ -808,9 +810,12 @@ class Client(object):
             "deviceIdentifier": self.client_uuid,
             "deviceName": "pyinviter",
         }
+        if self.authentication_cb:
+            loginpayload = self.authentication_cb(loginpayload)
         data = self.r("/identity/connect/token", token=False, data=loginpayload)
         if not data.status_code == 200:
-            exc = LoginError(f"Failed login for {email}")
+            error_description = data.json().get("error_description", "unknown error")
+            exc = LoginError(f"Failed login for {email} ({error_description})")
             exc.response = data
             raise exc
         token = data.json()
