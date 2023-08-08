@@ -151,6 +151,44 @@ c.remove_user_from_collection(userOrEmail, colc)
 c.remove_user_from_organization(userOrEmail, orga)
 ```
 
+### Manipulating the login data structure via callback (2Factor)
+This allows other login mechanisms such as totp or api key:
+
+example 1:
+
+```python
+
+def mfa2fa(loginpayload):
+    totp = pyotp.TOTP(otpseed)
+    loginpayload.update(
+        {
+            "twoFactorToken": str(totp.now()),
+            "twoFactorProvider": "0",
+            "twoFactorRemember": "0"
+        }
+    )
+    return loginpayload
+
+client = Client(server, email, password, authentication_cb=mfa2fa)
+```
+
+example 1:
+
+```python
+def api_key(loginpayload):
+    loginpayload.update(
+        {
+            "client_id": CLIENT_ID,
+            "client_secret": CLIENT_SECRET,
+            "scope": "api",
+            "grant_type": "client_credentials"
+        }
+    )
+    return loginpayload
+
+client = Client(server, email, password, authentication_cb=api_key)
+```
+
 ### encode the vaultwarden/bitwarden_rs key for autovalidating user
 ```sh
 base64 $BITWARDEN_RS_SERVER_DATA/rsa_key.der|tr -d '\n'
