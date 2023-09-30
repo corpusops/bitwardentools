@@ -11,3 +11,4 @@
 .bash_history
 src/.coverage
 /dist
+/.tox

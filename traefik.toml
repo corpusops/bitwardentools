@@ -1,0 +1,10 @@
+[global]
+checkNewVersion=false
+sendAnonymousUsage=false
+
+[entryPoints]
+web.address=":80"
+websecure.address=":443"
+
+[providers.file]
+filename="/app/traefik.r.toml"

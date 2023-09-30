@@ -8,7 +8,7 @@ x-bases:
       BITWARDEN_DB_IMAGE: corpusops/postgres:13
       BITWARDEN_DOMAIN: bitwarden
       DATABASE_URL: postgresql://db:db@db/db
-      BITWARDEN_IMAGE: vaultwarden/server:1.21.0
+      BITWARDEN_IMAGE: vaultwarden/server:1.29.1
       DATA_FOLDER: /data
       DISABLE_ADMIN_TOKEN: "true"
       DOMAIN: http://bitwarden
@@ -44,7 +44,7 @@ x-bases:
       SMTP_SSL: "false"
       SMTP_TIMEOUT: '15'
       WEBSOCKET_ENABLED: "true"
-networks: {app_net: {driver: bridge, ipam: {config: [{subnet: "${BITWARDEN_NETWORK:-172.38.0}.0/24"}], driver: default}}}
+networks: {bitwarden_net: {driver: bridge, ipam: {config: [{subnet: "${BITWARDEN_NETWORK:-172.38.0}.0/24"}], driver: default}}}
 services:
   setup:
     <<: [ *base ]
@@ -72,13 +72,13 @@ services:
       rf
       while true;do printf "HTTP/1.1 200 OK\nContent-Length: 7\n\nstarted\n"|( nc -l -p 80 || /bin/true);done
     image: corpusops/postgres:13
-    networks: {app_net: {ipv4_address: "${BITWARDEN_NETWORK:-172.38.0}.6"}}
+    networks: {bitwarden_net: {ipv4_address: "${BITWARDEN_NETWORK:-172.38.0}.6"}}
     volumes:
     - helpers:/helpers:rw
   db:
     <<: [ *base ]
     image: corpusops/postgres:13
-    networks: {app_net: {ipv4_address: "${BITWARDEN_NETWORK:-172.38.0}.4"}}
+    networks: {bitwarden_net: {ipv4_address: "${BITWARDEN_NETWORK:-172.38.0}.4"}}
     security_opt: [seccomp=unconfined]
     volumes:
     - db:/var/lib/postgresql/data:rw
@@ -92,13 +92,13 @@ services:
       -p -c MailHog'
     hostname: mailcatcher
     image: corpusops/mailhog
-    networks: {app_net: {ipv4_address: "${BITWARDEN_NETWORK:-172.38.0}.12"}}
+    networks: {bitwarden_net: {ipv4_address: "${BITWARDEN_NETWORK:-172.38.0}.12"}}
     user: root
     volumes:
     - mails:/mails:rw
   bitwarden:
     <<: [ *base ]
-    image: $BITWARDEN_IMAGE
+    image: ${BITWARDEN_IMAGE:-vaultwarden/server:1.29.1}
     hostname: bitwarden
     depends_on: [db, setup, mailcatcher]
     entrypoint:
@@ -106,7 +106,7 @@ services:
     - -exc
     - 'while !(curl -s setup);do echo "not ready">&2;sleep 0.5;done
       && exec /start.sh "$$@"'
-    networks: {app_net: {ipv4_address: "${BITWARDEN_NETWORK:-172.38.0}.14"}}
+    networks: {bitwarden_net: {ipv4_address: "${BITWARDEN_NETWORK:-172.38.0}.14"}}
     volumes:
     - bitwarden:/data:rw
     - ./bitwarden:/conf:rw
@@ -114,7 +114,7 @@ services:
     - logs:/logs:rw
   app:
     <<: [ *base ]
-    networks: {app_net: {}}
+    networks: {bitwarden_net: {}}
     depends_on: [bitwarden]
     entrypoint:
     - bash
@@ -136,6 +136,22 @@ services:
     volumes:
     - "bitwarden:/bitwarden"
     - helpers:/helpers:rw
+  traefik:
+    image: "traefik:v2.10"
+    networks: {bitwarden_net: {}}
+    entrypoint:
+    - "sh"
+    -  "-xec"
+    - |-
+      /entrypoint.sh --configFile=/app/traefik.toml
+    ports:
+    - "${BITWARDEN_PORT:-3010}:80"
+    - "${BITWARDEN_PORT:-3013}:8080"
+    - "${BITWARDEN_PORT:-3011}:443"
+    volumes:
+    - "./:/app:ro"
+    - "./traefik.toml:/traefik.toml"
+    - "./traefik.r.toml:/traefik.r.toml"
 volumes:
   bitwarden: {}
   mails: {}
