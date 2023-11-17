@@ -1,21 +1,21 @@
-# tools for working with vaultwarden/bitwarden (_rs) and vaultier
+# Tools for working with vaultwarden/bitwarden (_rs) and vaultier
 
-This package containers a python3+ client for bitwarden which uses both a native python implementation but also wraps the official the official npm `@bitwarden/cli`.
+This package containers a python3+ client for bitwarden which uses both a native python implementation but also wraps the official npm `@bitwarden/cli`.
 
 The ultimate goal is certainly only to rely on python implementation against the vaultwarden/bitwarden_rs server implementation.
 
 - [![.github/workflows/cicd.yml](https://github.com/corpusops/bitwardentools/actions/workflows/cicd.yml/badge.svg?branch=main)](https://github.com/corpusops/bitwardentools/actions/workflows/cicd.yml)
 
 ## Features
-- api controllable client
+- API controllable client
 - Create, Read, Update, Delete,  on organizations, collection, ciphers, users (also disable/enable), and attachments
 - Attach Ciphers to organization collections
-- Set access at orgas, collections and users levels.
+- Set access at organization, collections and users levels
 - Download/Upload attachments to vault and organizations
-- The client also integrate a thin wrapper to official npm CLI (see `call` mathod)
-- Read [api](./src/bitwardentools/client.py)  for longer details
+- Integrates a thin wrapper around the official npm CLI (see `call` mathod)
+- Read [api](./src/bitwardentools/client.py) for more details
  
-## install as a python lib
+## Install as a python lib
 ```bash
 pip install bitwardentools
 ```
@@ -47,14 +47,14 @@ docker-compose up -d --force-recreate
 docker-compose exec -u app app bash
 ```
 
-### run tests
+### Run Tests
 ```bash
 sed -i -e "/COMPOSE_FILE/d" .env
 echo "COMPOSE_FILE=docker-compose.yml:docker-compose-dev.yml:docker-compose-test.yml" >> .env
 docker-compose exec -u app app tox -e linting,coverage
 ```
 
-## Credits and bibliography
+## Credits and Bibliography
 - [gnunux](http://gnunux.info/) excellent articles:
     [1](http://gnunux.info/dotclear2/index.php?post/2020/10/11/%C3%89crire-un-client-Bitwarden-en-python-%3A-identifiant)
     [2](http://gnunux.info/dotclear2/index.php?post/2020/10/11/%C3%89crire-un-client-Bitwarden-en-python-%3A-cr%C3%A9er-une-organisation-et-une-collection)
@@ -66,5 +66,5 @@ docker-compose exec -u app app tox -e linting,coverage
 - https://github.com/jcs/rubywarden
 
 
-## Doc
-see also [USAGE](./USAGE.md) (or read below on pypi)
+## Docs
+See [USAGE](./USAGE.md) (or read below on pypi)
