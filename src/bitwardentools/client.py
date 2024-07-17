@@ -145,17 +145,17 @@ def rewrite_acls_collection(i, skip=None):
         skip = re.compile(skip)
     if isinstance(i, dict):
         for v, k in {
-            "Data": "data",
-            "Id": "id",
-            "AccessAll": "accessAll",
-            "Email": "email",
-            "Name": "name",
-            "Status": "status",
-            "Collections": "collections",
-            "UserId": "userId",
-            "Type": "type",
-            "HidePasswords": "hidePasswords",
-            "ReadOnly": "readOnly",
+            "data": "data",
+            "id": "id",
+            "accessAll": "accessAll",
+            "email": "email",
+            "name": "name",
+            "status": "status",
+            "collections": "collections",
+            "userId": "userId",
+            "type": "type",
+            "hidePasswords": "hidePasswords",
+            "readOnly": "readOnly",
         }.items():
             if skip and (skip.search(v) or skip.search(k)):
                 i.pop(v, None)
@@ -367,9 +367,9 @@ def get_types(t):
 
 def get_type(obj, default=""):
     if isinstance(obj, BWFactory):
-        objtyp = getattr(obj, "Object", getattr(obj, "object", ""))
+        objtyp = getattr(obj, "object", getattr(obj, "object", ""))
     elif isinstance(obj, dict):
-        objtyp = obj.get("Object", obj.get("object", ""))
+        objtyp = obj.get("object", obj.get("object", ""))
     else:
         objtyp = default
     return objtyp.lower()
@@ -484,7 +484,7 @@ class BWFactory(object):
             try:
                 object_class_name = jsond["object"]
             except KeyError:
-                object_class_name = jsond["Object"]
+                object_class_name = jsond["object"]
             if object_class_name.lower().startswith("cipher"):
                 try:
                     typ = jsond["Type"]
@@ -1008,9 +1008,9 @@ class Client(object):
             assert _CACHE.get("sync")
         except AssertionError:
             sdata = self.api_sync(sync=sync)
-            for orga in sdata.get("Profile", {}).get("Organizations", []):
+            for orga in sdata.get("profile", {}).get("organizations", []):
                 orga = deepcopy(orga)
-                orga["Object"] = "organization"
+                orga["object"] = "organization"
                 obj = BWFactory.construct(orga, client=self, unmarshall=True)
                 self.cache(obj)
             _CACHE["sync"] = True
@@ -1394,12 +1394,12 @@ class Client(object):
                 enc_okey = (
                     dict(
                         [
-                            (a["Id"], a)
-                            for a in sdata.get("Profile", {}).get("Organizations", [])
+                            (a["id"], a)
+                            for a in sdata.get("profile", {}).get("organizations", [])
                         ]
                     )
                     .get(orga.id, {})
-                    .get("Key", None)
+                    .get("key", None)
                 )
                 if enc_okey:
                     break
@@ -1514,7 +1514,7 @@ class Client(object):
             assert _CACHE["sync"]
         except AssertionError:
             for enccol in (
-                self.r("/api/collections", method="get").json().get("Data", [])
+                self.r("/api/collections", method="get").json().get("data", [])
             ):
                 col = BWFactory.construct(enccol, client=self, unmarshall=True)
                 _, colk = self.get_organization_key(col.organizationId, token=token)
@@ -1702,12 +1702,12 @@ class Client(object):
                 exc.response = resp
                 raise exc
             dciphers = []
-            for cipher in ciphers.get("Data", []):
+            for cipher in ciphers.get("data", []):
                 try:
                     dciphers.append(self.decrypt(cipher, token=token))
                 except bwcrypto.DecryptError:
-                    self._broken_ciphers[cipher["Id"]] = cipher
-                    L.info(f'Cant decrypt cipher {cipher["Id"]}, broken ?')
+                    self._broken_ciphers[cipher["id"]] = cipher
+                    L.info(f'Cant decrypt cipher {cipher["id"]}, broken ?')
             for cipher in dciphers:
                 obj = BWFactory.construct(cipher, client=self, unmarshall=True)
                 self.cache(obj, vaultier=vaultier)
@@ -3187,9 +3187,9 @@ class Client(object):
         user_id = acl["userId"]
         resp = self.r(f"/api/users/{user_id}/public-key", method="get")
         self.assert_bw_response(resp)
-        userorgkey = b64decode(resp.json()["PublicKey"])
+        userorgkey = b64decode(resp.json()["publicKey"])
         encoded_key = bwcrypto.encrypt_asym(orgkey[1], userorgkey)
-        payload = {"Key": encoded_key}
+        payload = {"key": encoded_key}
         try:
             u = f"/api/organizations/{orga.id}/users/{acl['id']}/confirm"
             resp = self.r(u, json=payload, token=token)
