@@ -487,10 +487,10 @@ class BWFactory(object):
                 object_class_name = jsond["object"]
             if object_class_name.lower().startswith("cipher"):
                 try:
-                    typ = jsond["Type"]
+                    typ = jsond["type"]
                     object_class = SECRETS_CLASSES[typ]
                 except KeyError:
-                    L.error(f'Unkown cipher {jsond.get("Id", "")}')
+                    L.error(f'Unkown cipher {jsond.get("id", "")}')
             else:
                 object_class = get_obj(object_class_name)
         a = object_class(
