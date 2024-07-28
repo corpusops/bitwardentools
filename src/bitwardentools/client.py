@@ -2209,27 +2209,22 @@ class Client(object):
         # reload cached users
         return self.get_users(sync=sync)
 
-    def enable_user(self, email=None, name=None, id=None, user=None):
+    def modify_user(self, action, email=None, name=None, id=None, user=None, **kw):
         user = self.get_user(email=email, name=name, id=id, user=user)
-        resp = self.adminr(f"/users/{user.id}/enable")
+        resp = self.adminr(f"/users/{user.id}/{action}")
         self.post_user_request(resp)
-        L.info(f"Enabled user {user.email} / {user.name} / {user.id}")
-        return resp
+        if action == "delete":
+            self.uncache(obj=user, **kw)
+        L.info(f"{action.title()} user {user.email} / {user.name} / {user.id}")
+
+    def enable_user(self, email=None, name=None, id=None, user=None):
+        return self.modify_user("enable", email=email, name=name, id=id, user=user)
 
     def disable_user(self, email=None, name=None, id=None, user=None):
-        user = self.get_user(email=email, name=name, id=id, user=user)
-        resp = self.adminr(f"/users/{user.id}/disable")
-        self.post_user_request(resp)
-        L.info(f"Disabled user {user.email} / {user.name} / {user.id}")
-        return resp
+        return self.modify_user("disable", email=email, name=name, id=id, user=user)
 
     def delete_user(self, email=None, name=None, id=None, user=None, sync=True, **kw):
-        user = self.get_user(email=email, name=name, id=id, user=user, sync=sync)
-        resp = self.adminr(f"/users/{user.id}/delete")
-        self.post_user_request(resp)
-        self.uncache(obj=user, **kw)
-        L.info(f"Deleted user {user.email} / {user.name} / {user.id}")
-        return resp
+        return self.modify_user("delete", email=email, name=name, id=id, user=user, sync=sync, **kw)
 
     def validate(self, email, password=None, id=None, name=None, sync=None, token=None):
         token = self.get_token(token=token)
