@@ -56,6 +56,9 @@ jobs:
       run: |-
         for i in .env .env.local;do if [ -e $i.test ];then cp -v $i.test $i;fi;done
         printf "USER_UID=$(id -u)\nUSER_GID=$(id -g)\n">>.env
+    - name: Install docker-compose
+      run: |-
+        sudo apt update && sudo apt install -y docker-compose
     - name: Build dependant docker images if any
       run: if ( docker-compose config|egrep -q build:; );then docker-compose build;fi
     - name: Start stack
