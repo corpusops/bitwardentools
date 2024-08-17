@@ -3,6 +3,7 @@ on:
     inputs:
       RUNTESTS: {description: 'Run tests', required: false}
   push:
+  pull_request:
   schedule: [{cron: '1 0 1,15 * *'}]
   repository_dispatch:
 env:
