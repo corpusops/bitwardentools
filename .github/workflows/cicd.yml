@@ -78,6 +78,7 @@ jobs:
         for i in $http_services;do http_wait $i;done
         ( while true; do docker ps -a;docker-compose logs db bitwarden app;sleep 15;done )&
         $bash -exc '\
+        sudo chmod 777 -R .tox
         ( while !(touch .tox/ready);do echo "app not ready ($(pwd))">&2;sleep 0.5;done \
         && touch .tox/appready )&\
         /cops_helpers/dockerize -wait file://$(pwd)/.tox/appready -timeout 180s;'
