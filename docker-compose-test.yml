@@ -98,7 +98,7 @@ services:
     - mails:/mails:rw
   bitwarden:
     <<: [ *base ]
-    image: ${BITWARDEN_IMAGE:-vaultwarden/server:1.29.1}
+    image: ${BITWARDEN_IMAGE:-vaultwarden/server:1.32.0}
     hostname: bitwarden
     depends_on: [db, setup, mailcatcher]
     entrypoint:
