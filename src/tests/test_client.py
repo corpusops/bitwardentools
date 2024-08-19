@@ -10,7 +10,7 @@ from bitwardentools import client as bwclient
 from bitwardentools import crypto as bwcrypto
 
 ORGA_TEST_ID = os.environ.get("ORGA_TEST_ID", "bitwardentoolstest")
-DSKIP = "daccess|emails|^id|^Id|userId|Object|ContinuationToken"
+DSKIP = "daccess|emails|^id|^Id|userId|(o|O)bject|(c|C)ontinuationToken"
 AL = bwclient.CollectionAccess
 
 
@@ -618,7 +618,7 @@ class TestBitwardenInteg(unittest.TestCase):
         self.assertEqual(
             strip_dict_data(
                 ao1["daccess"][self.user1[0].email],
-                skip=f"{DSKIP}|(g|G)roups|TwoFactorEnabled|ResetPasswordEnrolled|ExternalId|collections",
+                skip=f"{DSKIP}|(g|G)roups|(t|T)woFactorEnabled|(r|R)esetPasswordEnrolled|(e|E)xternalId|collections",
             ),
             {
                 "accessAll": False,
