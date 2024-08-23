@@ -1638,6 +1638,16 @@ class Client(object):
                         pass
             if orga:
                 _, key = self.get_organization_key(orga)
+
+            if (k := value.get("key", None)) is not None:
+                key = self.decrypt(k,
+                   orga=orga,
+                   key=key,
+                   token=token,
+                   recursion=recursion,
+                   dictkey="key",
+                )
+
             for i, v in value.items():
                 nvalue[i] = self.decrypt(
                     v,
