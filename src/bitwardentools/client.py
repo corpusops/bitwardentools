@@ -1626,8 +1626,10 @@ class Client(object):
         elif isinstance(value, dict):
             nvalue = type(value)()
             obj = get_type(value)
+            _key = None
             if obj and not orga and re.search("^passsword|note|attachment|cipher", obj):
-                key = token["user_key"]
+                _key = token["user_key"]
+            user_key = _key
             if orga is None:
                 for i in "OrganizationId", "organizationId":
                     if not value.get(i, None):
@@ -1637,22 +1639,24 @@ class Client(object):
                     except OrganizationNotFound:
                         pass
             if orga:
-                _, key = self.get_organization_key(orga)
+                _, _key = self.get_organization_key(orga)
+            orga_key = _key
 
             if (k := value.get("key", None)) is not None:
-                key = self.decrypt(k,
+                nvalue["key"] = item_key = _key = self.decrypt(k,
                    orga=orga,
-                   key=key,
+                   key=_key,
                    token=token,
-                   recursion=recursion,
+                   recursion=None,
                    dictkey="key",
                 )
 
+            root = len(recursion) == 0
             for i, v in value.items():
                 nvalue[i] = self.decrypt(
                     v,
                     orga=orga,
-                    key=key,
+                    key=orga_key if i in ["key"] else key or _key,
                     token=token,
                     recursion=recursion,
                     dictkey=i,
