@@ -1651,12 +1651,11 @@ class Client(object):
                    dictkey="key",
                 )
 
-            root = len(recursion) == 0
             for i, v in value.items():
                 nvalue[i] = self.decrypt(
                     v,
                     orga=orga,
-                    key=orga_key if i in ["key"] else key or _key,
+                    key=(orga_key or user_key) if i in ["key"] else key or _key,
                     token=token,
                     recursion=recursion,
                     dictkey=i,
