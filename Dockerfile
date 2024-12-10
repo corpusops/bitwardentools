@@ -1,9 +1,9 @@
 # syntax=docker/dockerfile:1.3
-FROM corpusops/ubuntu-bare:22.04
+FROM corpusops/ubuntu-bare:24.04
 WORKDIR /tmp/install
 ARG DEV_DEPENDENCIES_PATTERN='^#\s*dev dependencies' \
     PY_VER=3.8 \
-    USER_NAME=app USER_UID=1000 USER_GROUP= USER_GID= \
+    USER_NAME=app USER_UID=1001 USER_GROUP= USER_GID= \
     USER_HOME=/w
 ARG PIP_SRC=$USER_HOME/lib
 ENV USER_NAME=$USER_NAME USER_GROUP=${USER_GROUP:-$USER_NAME} USER_UID=$USER_UID USER_GID=${USER_GID:-${USER_UID}} USER_HOME=$USER_HOME PY_VER=${PY_VER} PIP_SRC=$PIP_SRC
@@ -25,7 +25,7 @@ RUN set -e \
 WORKDIR $USER_HOME
 # See https://github.com/pypa/setuptools/issues/3301
 # ARG PIP_REQ=>=22 SETUPTOOLS_REQ=<60 \
-ARG PIP_REQ=>=22 SETUPTOOLS_REQ=>=60 \
+ARG PIP_REQ=>=22 SETUPTOOLS_REQ=>=75 \
     REQUIREMENTS=requirements/requirements.txt requirements/requirements-dev.txt
 ENV REQUIREMENTS=$REQUIREMENTS PIP_REQ=$PIP_REQ SETUPTOOLS_REQ=$SETUPTOOLS_REQ
 ADD --chown=app:app lib/ lib/
@@ -33,12 +33,13 @@ ADD --chown=app:app src/ src/
 ADD --chown=app:app *.py *txt *md *in ./
 RUN mkdir requirements
 ADD --chown=app:app requirements/requirement* requirements/
-RUN bash -c 'set -e \
+RUN bash -c 'set -ex \
   && for i in / /usr /usr/local;do \
   ln -fsv $(which python${PY_VER}) $i/bin/python;done \
-  && python <(curl https://bootstrap.pypa.io/get-pip.py) \
-  && pip install --upgrade pip${PIP_REQ} setuptools${SETUPTOOLS_REQ} \
-  && SETUPTOOLS_USE_DISTUTILS=stdlib python -m pip install --no-cache -r <( cat $REQUIREMENTS ) \
+  && python <(curl https://bootstrap.pypa.io/get-pip.py) --break-system-packages \
+  && pip install --break-system-packages --upgrade pip${PIP_REQ} \
+  && pip install --break-system-packages --upgrade setuptools${SETUPTOOLS_REQ} \
+  && python -m pip install --break-system-packages --no-cache -r <( cat $REQUIREMENTS ) \
   && chown -Rf $USER_NAME .'
 
 # add and install node

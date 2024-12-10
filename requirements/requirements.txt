@@ -1,3 +1,4 @@
+setuptools
 -e .
 -e git+https://github.com/corpusops/vaultier-cli.git##egg=vaultcli
 click
