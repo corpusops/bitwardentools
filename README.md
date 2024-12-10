@@ -14,7 +14,7 @@ The ultimate goal is certainly only to rely on python implementation against the
 - Download/Upload attachments to vault and organizations
 - Integrates a thin wrapper around the official npm CLI (see `call` mathod)
 - Read [api](./src/bitwardentools/client.py) for more details
- 
+
 ## Install as a python lib
 ```bash
 pip install bitwardentools
@@ -31,27 +31,27 @@ printf "USER_UID=$(id -u)\nUSER_GID=$(id -g)\n">>.env
 ### Build
 ```bash
 eval $(egrep -hv '^#|^\s*$' .env .env.local|sed  -e "s/^/export /g"| sed -e "s/=/='/" -e "s/$/'/g"|xargs)
-COMPOSE_FILE="docker-compose.yml:docker-compose-build.yml" docker-compose build
+COMPOSE_FILE="docker-compose.yml:docker-compose-build.yml" docker compose build
 ```
 
 ### Run
 
 ```bash
-docker-compose run --rm app bash
+docker compose run --rm app bash
 ```
 
 ```bash
 sed -i -e "/COMPOSE_FILE/d" .env
 echo "COMPOSE_FILE=docker-compose.yml:docker-compose-dev.yml" >> .env
-docker-compose up -d --force-recreate
-docker-compose exec -u app app bash
+docker compose up -d --force-recreate
+docker compose exec -u app app bash
 ```
 
 ### Run Tests
 ```bash
 sed -i -e "/COMPOSE_FILE/d" .env
 echo "COMPOSE_FILE=docker-compose.yml:docker-compose-dev.yml:docker-compose-test.yml" >> .env
-docker-compose exec -u app app tox -e linting,coverage
+docker compose exec -u app app tox -e linting,coverage
 ```
 
 ## Credits and Bibliography

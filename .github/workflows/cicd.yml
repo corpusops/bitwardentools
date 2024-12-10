@@ -56,23 +56,23 @@ jobs:
         for i in .env .env.local;do if [ -e $i.test ];then cp -v $i.test $i;fi;done
         printf "USER_UID=$(id -u)\nUSER_GID=$(id -g)\n">>.env
     - name: Build dependant docker images if any
-      run: if ( docker-compose config|egrep -q build:; );then docker-compose build;fi
+      run: if ( docker compose config|egrep -q build:; );then docker compose build;fi
     - name: Start stack
       if: ${{ env.RUNTESTS == '1' }}
-      run: docker-compose up -d && docker-compose ps -a
+      run: docker compose up -d && docker compose ps -a
     - name: Test with tox
       if: ${{ env.RUNTESTS == '1' }}
       run: |-
         set -ex
         http_services="bitwarden"
         services="db setup $http_services"
-        bash="docker-compose exec -T -u app app bash"
+        bash="docker compose exec -T -u app app bash"
         http_wait() { $bash -exc "/cops_helpers/dockerize -wait http://$1 -timeout 60s"; }
-        # docker-compose exec -T db bash -c \
+        # docker compose exec -T db bash -c \
         #   'printf "drop schema public cascade;create schema public;"|psql -U $POSTGRES_USER $POSTGRES_DB'
-        # docker-compose up -d --force-recreate --no-deps $services
+        # docker compose up -d --force-recreate --no-deps $services
         for i in $http_services;do http_wait $i;done
-        ( while true; do docker ps -a;docker-compose logs db bitwarden app;sleep 15;done )&
+        ( while true; do docker ps -a;docker compose logs db bitwarden app;sleep 15;done )&
         $bash -exc '\
         ( while !(touch .tox/ready);do echo "app not ready ($(pwd))">&2;sleep 0.5;done \
         && touch .tox/appready )&\
