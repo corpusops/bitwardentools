@@ -17,7 +17,7 @@ from base64 import b64decode, b64encode
 from collections import OrderedDict
 from copy import deepcopy
 from subprocess import run
-from time import time
+from time import sleep, time
 
 import requests
 from jwt import encode as jwt_encode
@@ -26,12 +26,14 @@ from packaging import version as _version
 from bitwardentools import crypto as bwcrypto
 from bitwardentools.common import L, caseinsentive_key_search
 
+LOGIN_ENDPOINT_RE = re.compile("connect/token")
 VAULTIER_FIELD_ID = "vaultiersecretid"
 DEFAULT_CACHE = {"id": {}, "name": {}, "sync": False}
 SYNC_ALL_ORGAS_ID = "__orga__all__ORGAS__"
 SYNC_ORGA_ID = "__orga__{0}"
 SECRET_CACHE = {"id": {}, "name": {}, "vaultiersecretid": {}, "sync": []}
 DEFAULT_BITWARDEN_CACHE = {
+    "sync_token": {},
     "sync": {},
     "templates": {},
     "users": deepcopy(DEFAULT_CACHE),
@@ -103,6 +105,7 @@ IS_BITWARDEN_RE = re.compile(
 API_CHANGES = {
     "1.27.0": _version.parse("1.27.0"),
 }
+MARKER = object()
 
 
 def uncapitzalize(s):
@@ -268,6 +271,10 @@ class ColSearchError(SearchError):
 
 
 class RunError(BitwardenError):
+    """."""
+
+
+class SecurityError(BitwardenError):
     """."""
 
 
@@ -693,6 +700,7 @@ class Client(object):
         cache=None,
         vaultier=False,
         authentication_cb=None,
+        multiuser=False,
     ):
         # goal is to allow shared cache amongst client instances
         # but also if we want totally isolated caches
@@ -728,6 +736,7 @@ class Client(object):
             self.login()
         self._is_vaultwarden = False
         self._version = None
+        self.multiuser = multiuser
 
     @property
     def token(self):
@@ -759,7 +768,17 @@ class Client(object):
             headers = {}
         return getattr(requests, method.lower())(url, headers=headers, *a, **kw)
 
-    def r(self, uri, method="post", headers=None, token=None, retry=True, *a, **kw):
+    def r(
+        self,
+        uri,
+        method="post",
+        headers=None,
+        token=None,
+        retry=True,
+        multiuser=MARKER,
+        *a,
+        **kw,
+    ):
         url = uri
         if not url.startswith("http"):
             url = f"{self.server}{uri}"
@@ -768,14 +787,28 @@ class Client(object):
         if token is not False:
             token = self.get_token(token)
             headers.update({"Authorization": f"Bearer {token['access_token']}"})
+        self.invalidate_other_user_cache(url, token, multiuser=multiuser)
+        # if we try to get a new token, invalidate any local cache for security reason
         resp = getattr(requests, method.lower())(url, headers=headers, *a, **kw)
         if resp.status_code in [401] and token is not False and retry:
+            sleep(0.05)
             L.debug(
                 f"Access denied, trying to retry after refreshing token for {token['email']}"
             )
             token = self.login(token["email"], token["password"])
             headers.update({"Authorization": f"Bearer {token['access_token']}"})
             resp = getattr(requests, method.lower())(url, headers=headers, *a, **kw)
+        if resp.status_code > 399 and retry is not False:
+            sleep(0.5)
+            L.debug(f"Something went wrong, retrying {url}")
+            resp = getattr(requests, method.lower())(url, headers=headers, *a, **kw)
+        return resp
+
+    def verify_token(self, token):
+        resp = self.r(
+            "/api/accounts/revision-date", token=token, retry=False, method="get"
+        )
+        self.assert_bw_response(resp)
         return resp
 
     def login(
@@ -784,19 +817,19 @@ class Client(object):
         password=None,
         scope="api offline_access",
         grant_type="password",
+        force=None,
     ):
         email = email or self.email
         try:
+            if force:
+                raise KeyError("force_relog")
             token = self.tokens[email]
         except KeyError:
             pass
         else:
             # as token is already there, test if token is still usable
-            resp = self.r(
-                "/api/accounts/revision-date", token=token, retry=False, method="get"
-            )
             try:
-                self.assert_bw_response(resp)
+                self.verify_token(token)
             except ResponseError:
                 self.tokens.pop(email, None)
             else:
@@ -952,10 +985,59 @@ class Client(object):
         tpl.update(kw)
         return tpl
 
+    def invalidate_other_user_cache(self, url=None, token=None, multiuser=MARKER):
+        """
+        if we detect any new login or token change and the token is different
+        we bust cache for security unless the user choosed explicitly the contrary
+        either by setting self.multiuser=True or client(multiuser=True)
+        which is discouraged unless you know what you do
+        and takes the whole responsability of it because this can lead to leaks
+        """
+        if multiuser is MARKER:
+            multiuser = self.multiuser
+        if not token:
+            token = {}
+        if not url:
+            url = ""
+        sat = self._cache["sync_token"]
+        at = sat.get("access_token", "")
+        is_different_token = at != token.get("access_token", "")
+        # in case of token check we will check first if token is same
+        # and in other case, we will check by email in case of token
+        # regeneration between requests
+        if not multiuser and is_different_token:
+            temail = token.get("email", "")
+            semail = sat.get("email", "")
+            if temail and semail and semail == temail:
+                resp = self.r(
+                    "/api/accounts/profile", method="get", token=token, multiuser=True
+                )
+                self.assert_bw_response(resp)
+                profile = resp.json()
+                pemail = profile.get("Email", profile.get("email", ""))
+                if semail == pemail:
+                    # tokens belong both to the same user, explicit no bust
+                    return False
+                else:
+                    self.bust_cache()
+                    raise SecurityError(
+                        f"token tampering/impersonation detected for email: "
+                        f"token: {temail} / sync token: {semail} / remote profile: {pemail}"
+                    )
+        if (
+            not self.multiuser
+            and self._cache["sync"]
+            and (is_different_token or LOGIN_ENDPOINT_RE.search(url))
+        ):
+            self.bust_cache()
+            return True
+        return False
+
     def api_sync(self, sync=None, cache=None, token=None):
         _CACHE = self._cache["sync"]
         k = "api_sync"
         token = self.get_token(token)
+        self.invalidate_other_user_cache(token=token)
         if sync is None:
             sync = False
         if cache is None:
@@ -975,6 +1057,7 @@ class Client(object):
             self.assert_bw_response(resp)
             _CACHE.update(resp.json())
             _CACHE[k] = True
+            self._cache["sync_token"] = token
         return _CACHE
 
     def cli_sync(self, sync=None):
@@ -985,6 +1068,7 @@ class Client(object):
 
     def finish_orga(self, orga, cache=None, token=None, complete=None):
         token = self.get_token(token)
+        self.invalidate_other_user_cache(token=token)
         if complete and not getattr("orga", "BillingEmail", "") and not orga._complete:
             orga = BWFactory.construct(
                 self.r(f"/api/organizations/{orga.id}", method="get").json(),
@@ -997,6 +1081,7 @@ class Client(object):
 
     def get_organizations(self, sync=None, cache=None, token=None):
         token = self.get_token(token)
+        self.invalidate_other_user_cache(token=token)
         _CACHE = self._cache["organizations"]
         if sync is None:
             sync = False
@@ -1055,10 +1140,10 @@ class Client(object):
         exc.criteria = [orga]
         raise exc
 
-    def get_token(self, token=None):
+    def get_token(self, token=None, force=None):
         token = token or self.token
         if not token:
-            token = self.login()
+            token = self.login(force=force)
         return token
 
     def decrypt_item(self, val, key, decode=True, charset=None):
@@ -1380,6 +1465,8 @@ class Client(object):
         return obj
 
     def get_organization_key(self, orga, token=None, sync=None):
+        if token:
+            self.invalidate_other_user_cache(token=token)
         keys = self._cache["organizations"].setdefault("keys", {})
         if sync is None:
             sync = False
@@ -1489,6 +1576,7 @@ class Client(object):
         orga is either None for all or an orga(or orgaid)
         """
         token = self.get_token(token)
+        self.invalidate_other_user_cache(token=token)
         if not orga:
             sync_key = SYNC_ALL_ORGAS_ID
         else:
@@ -1547,6 +1635,7 @@ class Client(object):
     ):
         criteria = [item_or_id_or_name, orga]
         token = self.get_token(token)
+        self.invalidate_other_user_cache(token=token)
         if orga:
             orga = self.get_organization(orga, token=token)
         if isinstance(item_or_id_or_name, Collection):
@@ -1612,6 +1701,7 @@ class Client(object):
         self, value, key=None, orga=None, token=None, recursion=None, dictkey=None
     ):
         token = self.get_token(token=token)
+        self.invalidate_other_user_cache(token=token)
         nvalue = value
         idv = id(value)
         if recursion is None:
@@ -1678,6 +1768,7 @@ class Client(object):
     ):
         vaultier = self.get_vaultier(vaultier)
         token = self.get_token(token=token)
+        self.invalidate_other_user_cache(token=token)
         scache = self._cache["ciphers"]
         if sync or cache is False:
             scache.pop("sync", None)
@@ -1730,6 +1821,7 @@ class Client(object):
     ):
         vaultier = self.get_vaultier(vaultier)
         token = self.get_token(token)
+        self.invalidate_other_user_cache(token=token)
         sec = self.get_cipher(
             item,
             collection=collection,
@@ -1759,6 +1851,7 @@ class Client(object):
     ):
         vaultier = self.get_vaultier(vaultier)
         token = self.get_token(token)
+        self.invalidate_other_user_cache(token=token)
         sec = self.get_cipher(
             item,
             collection=collection,
@@ -1787,6 +1880,7 @@ class Client(object):
     ):
         vaultier = self.get_vaultier(vaultier)
         token = self.get_token(token)
+        self.invalidate_other_user_cache(token=token)
         ret = []
         if not isinstance(attachments, list):
             attachments = [attachments]
@@ -1816,6 +1910,7 @@ class Client(object):
     ):
         vaultier = self.get_vaultier(vaultier)
         token = self.get_token(token)
+        self.invalidate_other_user_cache(token=token)
         fn = os.path.basename(filepath)
         try:
             attachments = self.get_attachments(
@@ -1884,6 +1979,7 @@ class Client(object):
                 item_or_id_or_name = item_or_id_or_name.id
         vaultier = self.get_vaultier(vaultier)
         token = self.get_token(token)
+        self.invalidate_other_user_cache(token=token)
         _id = f"{self.item_or_id(item_or_id_or_name)}"
         if isinstance(_id, str):
             _id = _id.lower()
@@ -2433,6 +2529,7 @@ class Client(object):
             # XXX: maybe we will implement cache at a later time
             sync = True
         token = self.get_token(token)
+        self.invalidate_other_user_cache(token=token)
         ret, single = OrderedDict(), False
         if not isinstance(objs, (list, set, tuple)):
             single = True
@@ -3068,6 +3165,7 @@ class Client(object):
 
     def collections_to_payloads(self, collections, orga=None, token=None):
         token = self.get_token(token)
+        self.invalidate_other_user_cache(token=token)
         colexc = []
         dcollections = {}
         if collections:
@@ -3102,6 +3200,7 @@ class Client(object):
     def accept_invitation(self, orga, email, id=None, name=None, sync=None, token=None):
         self.ensure_private_key()
         token = self.get_token(token=token)
+        self.invalidate_other_user_cache(token=token)
         orga = self.get_organization(orga, token=token)
         user = self.get_user(email=email, name=name, id=id, sync=sync)
         email = user.email
@@ -3161,6 +3260,7 @@ class Client(object):
         Just email is necessary to match users
         """
         token = self.get_token(token=token)
+        self.invalidate_other_user_cache(token=token)
         orga = self.get_organization(orga, token=token)
         orgkey = self.get_organization_key(orga, token=token)
         oaccess = self.get_accesses(orga, token=token)

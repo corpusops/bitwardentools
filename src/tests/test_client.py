@@ -33,25 +33,31 @@ class TestBitwardenInteg(unittest.TestCase):
     @classmethod
     def wipe_objects(self):
         client = self.client
-        for jsond in ({"object": "organization"},):
+        for u in reversed(self.get_users()):
             try:
-                objs = client.search(jsond)
-                if jsond["object"] == "organization":
-                    objs = dict(
-                        [
-                            (a, objs[a])
-                            for a in objs
-                            if objs[a].name.startswith(ORGA_TEST_ID)
-                        ]
-                    )
+                self.client.bust_cache()
+                self.client.login(u[1], u[2])
             except bwclient.LoginError:
-                # ADMIN seems not to exist now, bypass
-                break
-            for obj in objs.values():
+                continue
+            for jsond in ({"object": "organization"},):
                 try:
-                    self.client.delete(obj)
-                except bwclient.DeleteError:
-                    pass
+                    objs = client.search(jsond)
+                    if jsond["object"] == "organization":
+                        objs = dict(
+                            [
+                                (a, objs[a])
+                                for a in objs
+                                if objs[a].name.startswith(ORGA_TEST_ID)
+                            ]
+                        )
+                except bwclient.LoginError:
+                    # ADMIN seems not to exist now, bypass
+                    break
+                for obj in objs.values():
+                    try:
+                        self.client.delete(obj)
+                    except bwclient.DeleteError:
+                        pass
 
     @classmethod
     def wipe_users(self):
@@ -77,14 +83,24 @@ class TestBitwardenInteg(unittest.TestCase):
     @classmethod
     def setup_users(self):
         for attr, email, password in self.get_users():
-            setattr(self, attr, self.client.create_user(email, password))
-        self.client.login(self.email, self.password)
+            try:
+                user = self.client.get_user(email=email)
+                setattr(self, attr, (user, password))
+            except bwclient.UserNotFoundError:
+                setattr(self, attr, self.client.create_user(email, password))
+
+    @classmethod
+    def sudo(cls):
+        admin = cls.get_users()[0]
+        cls.client.login(admin[1], admin[2])
+        cls.client.sync()
 
     @classmethod
     def setup_fixtures(self):
         if getattr(self, "_fixtures_done", False):
             return
         s, client = self, self.client
+        self.sudo()
         orga = self.orga = client.create_organization(ORGA_TEST_ID)
         orga1 = self.orga1 = client.create_organization(f"{ORGA_TEST_ID}1")
         orga2 = self.orga2 = client.create_organization(f"{ORGA_TEST_ID}2")
@@ -176,6 +192,58 @@ class TestBitwardenInteg(unittest.TestCase):
         )
         self.client.warm()
         self._fixtures_done = True
+
+    def test_forge_invalidate_bust_cache(self):
+        users = self.get_users()
+        admin = users[0]
+        u = users[-1]
+        # check cache is invalidated when using login()
+        self.client.email, self.client.password = u[1], u[2]
+        uat = self.client.login()
+        self.client.email, self.client.password = admin[1], admin[2]
+        aat = self.client.login()
+        aat2 = self.client.login(force=True)
+        for token in aat, aat2:
+            self.client.verify_token(token)
+        self.client.sync(token=aat)
+        self.client.warm()
+        uat = self.client.tokens[u[1]]
+        uat["email"] = aat["email"]
+        # request call should detect token tampering
+        self.assertRaises(
+            bwclient.SecurityError, self.client.invalidate_other_user_cache, token=uat
+        )
+        # and even if Exception is raised, explicitly bust cache
+        self.assertFalse(self.client._cache["ciphers"]["by_cipher"]["name"])
+        uat["email"] = u[1]
+
+        # check that cache is only busted if the request is using a token not belonging to the sync user
+        # but still not the contrary
+        self.client.sync(token=aat)
+        self.client.warm()
+        self.assertTrue(self.client._cache["ciphers"]["by_cipher"]["name"])
+        self.client.invalidate_other_user_cache(token=aat2)
+        self.assertTrue(self.client._cache["ciphers"]["by_cipher"]["name"])
+        self.client.invalidate_other_user_cache(token=uat)
+        self.assertFalse(self.client._cache["ciphers"]["by_cipher"]["name"])
+        self.client.sync(token=aat)
+        self.client.warm()
+
+    def test_bust_cache_between_users(self):
+        users = self.get_users()
+        admin = users[0]
+        u = users[-1]
+
+        # check cache is invalidated when using login()
+        self.client.email, self.client.password = admin[1], admin[2]
+        token = self.client.login()
+        tk1 = self.client.get_ciphers(token=token)
+        self.client.email, self.client.password = u[1], u[2]
+        token = self.client.login()
+        tk2 = self.client.get_ciphers(token=token)
+        self.assertTrue(tk1["name"] and not tk2["name"])
+        self.client.email, self.client.password = admin[1], admin[2]
+        self.client.login()
 
     @classmethod
     def tearDownClass(self):
@@ -408,12 +476,16 @@ class TestBitwardenInteg(unittest.TestCase):
         token = self.client.login()
         self.assertTrue(token["_btw_login_count"] > 1)
 
-    def test_bust(self):
+    def test_bust_cache_unit(self):
+        self.client.login()
+        self.client.sync()
         self.client.warm()
         test_cache = copy.deepcopy(self.client._cache)
         self.client.bust_cache()
         self.assertFalse(len(self.client._cache["users"]["id"]) > 0)
         self.assertTrue(len(test_cache["users"]["id"]) > 0)
+        self.client.sync()
+        self.client.warm()
 
     def test_add_user_to_organization(self):
         c = self.client
