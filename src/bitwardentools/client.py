@@ -61,6 +61,7 @@ TYPMAPPER = {
     "organization": "organization",
     "collection": "collection",
     "orgccollection": "collection",
+    "collectiondetails": "collectiondetails",
     "cipher": "cipher",
     "cipherdetails": "cipher",
     "item": "cipher",
@@ -76,6 +77,7 @@ COLTYPMAPPER = {
     "organization": "organizations",
     "collection": "collections",
     "orgcollection": "collections",
+    "collectiondetails": "collectionDetails",
     "user": "users",
     "profiles": "users",
     "profile": "users",
@@ -99,11 +101,40 @@ ORGA_PERMISSIONS = {
     "managePolicies": False,
     "manageUsers": False,
 }
+# handle camelCase / PascalCase compat
+API_OBJECT_KEYS_VERSION_MAPPINGS = {
+    "accessAll": "AccessAll",
+    "collections": "Collections",
+    "data": "Data",
+    "email": "Email",
+    "hidePasswords": "HidePasswords",
+    "id": "Id",
+    "key": "Key",
+    "name": "Name",
+    "object": "Object",
+    "organization": "Organization",
+    "organizationId": "OrganizationId",
+    "organizations": "Organizations",
+    "profile": "Profile",
+    "publicKey": "PublicKey",
+    "readOnly": "ReadOnly",
+    "status": "Status",
+    "type": "Type",
+    "userId": "UserId",
+}
 IS_BITWARDEN_RE = re.compile(
     "[0-9][0-9][0-9][0-9][.][0-9][0-9]?[.][0-9][0-9]?", flags=re.I | re.U | re.M
 )
 API_CHANGES = {
     "1.27.0": _version.parse("1.27.0"),
+    "1.31.0": _version.parse("1.27.0"),
+}
+
+API_KEYS = {
+    "default": {
+        "type": "",
+    },
+    "1.29.1": {},
 }
 MARKER = object()
 
@@ -148,6 +179,7 @@ def rewrite_acls_collection(i, skip=None):
         skip = re.compile(skip)
     if isinstance(i, dict):
         for v, k in {
+            # pre 1.31
             "Data": "data",
             "Id": "id",
             "AccessAll": "accessAll",
@@ -159,6 +191,18 @@ def rewrite_acls_collection(i, skip=None):
             "Type": "type",
             "HidePasswords": "hidePasswords",
             "ReadOnly": "readOnly",
+            # post 1.31
+            "data": "data",
+            "id": "id",
+            "accessAll": "accessAll",
+            "email": "email",
+            "name": "name",
+            "status": "status",
+            "collections": "collections",
+            "userId": "userId",
+            "type": "type",
+            "hidePasswords": "hidePasswords",
+            "readOnly": "readOnly",
         }.items():
             if skip and (skip.search(v) or skip.search(k)):
                 i.pop(v, None)
@@ -374,9 +418,9 @@ def get_types(t):
 
 def get_type(obj, default=""):
     if isinstance(obj, BWFactory):
-        objtyp = getattr(obj, "Object", getattr(obj, "object", ""))
+        objtyp = getattr(obj, "object", getattr(obj, "Object", ""))
     elif isinstance(obj, dict):
-        objtyp = obj.get("Object", obj.get("object", ""))
+        objtyp = obj.get("object", obj.get("Object", ""))
     else:
         objtyp = default
     return objtyp.lower()
@@ -421,6 +465,8 @@ class BWFactory(object):
         for k in ["vaultier", "vaultiersecretid"]:
             setattr(self, k, jsond.pop(k, locals()[k]))
         self.broken_objs = OrderedDict()
+        self._version = None
+        self._api_keys = None
 
     def delete(self, client):
         return client.delete(self)
@@ -439,6 +485,8 @@ class BWFactory(object):
             jsond = self.json
         if jsond:
             for i, val in jsond.items():
+                if i.lower() in ["object"]:
+                    val = uncapitzalize(val)
                 setattr(self, i, val)
         if self.vaultiersecretid:
             self.vaultier = True
@@ -488,16 +536,14 @@ class BWFactory(object):
         **kw,
     ):
         if object_class is None:
-            try:
-                object_class_name = jsond["object"]
-            except KeyError:
-                object_class_name = jsond["Object"]
+            object_class_name = jsond.get("object", jsond.get("Object", ""))
             if object_class_name.lower().startswith("cipher"):
                 try:
-                    typ = jsond["Type"]
+                    typ = jsond.get("type", jsond.get("Type", None))
                     object_class = SECRETS_CLASSES[typ]
                 except KeyError:
-                    L.error(f'Unkown cipher {jsond.get("Id", "")}')
+                    _id = jsond.get("id", jsond.get("Id", None))
+                    L.error(f"Unkown cipher {_id}")
             else:
                 object_class = get_obj(object_class_name)
         a = object_class(
@@ -682,6 +728,25 @@ class Collection(BWFactory):
         return self
 
 
+class Collectiondetails(BWFactory):
+    """."""
+
+    def __init__(self, *a, **kw):
+        BWFactory.__init__(self, *a, **kw)
+        self.externalId = getattr(self, "externalId", None)
+        self._orga = None
+        self.reflect()
+
+    def load(self, *a, **kw):
+        super(Collectiondetails, self).load(*a, **kw)
+        if self._client and getattr(self, "organizationId"):
+            try:
+                self._orga = self._client.get_organization(self.organizationId)
+            except OrganizationNotFound:
+                pass
+        return self
+
+
 Orgcollection = Collection
 
 
@@ -701,6 +766,7 @@ class Client(object):
         vaultier=False,
         authentication_cb=None,
         multiuser=False,
+        version=None,
     ):
         # goal is to allow shared cache amongst client instances
         # but also if we want totally isolated caches
@@ -737,6 +803,7 @@ class Client(object):
         self._is_vaultwarden = False
         self._version = None
         self.multiuser = multiuser
+        self._api_keys = None
 
     @property
     def token(self):
@@ -767,6 +834,19 @@ class Client(object):
         if headers is None:
             headers = {}
         return getattr(requests, method.lower())(url, headers=headers, *a, **kw)
+
+    @property
+    def api_keys(self):
+        if self._api_keys is None:
+            v, i = self.version()
+            if i and (v < _version.parse("1.31.0")):
+                keys = dict(
+                    (a, val) for a, val in API_OBJECT_KEYS_VERSION_MAPPINGS.items()
+                )
+            else:
+                keys = dict((a, a) for a in API_OBJECT_KEYS_VERSION_MAPPINGS)
+            self._api_keys = keys
+        return self._api_keys
 
     def r(
         self,
@@ -1093,9 +1173,11 @@ class Client(object):
             assert _CACHE.get("sync")
         except AssertionError:
             sdata = self.api_sync(sync=sync)
-            for orga in sdata.get("Profile", {}).get("Organizations", []):
+            for orga in sdata.get(self.api_keys["profile"], {}).get(
+                self.api_keys["organizations"], []
+            ):
                 orga = deepcopy(orga)
-                orga["Object"] = "organization"
+                orga[self.api_keys["object"]] = self.api_keys["organization"]
                 obj = BWFactory.construct(orga, client=self, unmarshall=True)
                 self.cache(obj)
             _CACHE["sync"] = True
@@ -1481,12 +1563,14 @@ class Client(object):
                 enc_okey = (
                     dict(
                         [
-                            (a["Id"], a)
-                            for a in sdata.get("Profile", {}).get("Organizations", [])
+                            (a[self.api_keys["id"]], a)
+                            for a in sdata.get(self.api_keys["profile"], {}).get(
+                                self.api_keys["organizations"], []
+                            )
                         ]
                     )
                     .get(orga.id, {})
-                    .get("Key", None)
+                    .get(self.api_keys["key"], None)
                 )
                 if enc_okey:
                     break
@@ -1602,7 +1686,9 @@ class Client(object):
             assert _CACHE["sync"]
         except AssertionError:
             for enccol in (
-                self.r("/api/collections", method="get").json().get("Data", [])
+                self.r("/api/collections", method="get")
+                .json()
+                .get(self.api_keys["data"], [])
             ):
                 col = BWFactory.construct(enccol, client=self, unmarshall=True)
                 _, colk = self.get_organization_key(col.organizationId, token=token)
@@ -1716,10 +1802,12 @@ class Client(object):
         elif isinstance(value, dict):
             nvalue = type(value)()
             obj = get_type(value)
+            _key = None
             if obj and not orga and re.search("^passsword|note|attachment|cipher", obj):
-                key = token["user_key"]
+                _key = token["user_key"]
+            user_key = _key
             if orga is None:
-                for i in "OrganizationId", "organizationId":
+                for i in (self.api_keys["organizationId"],):
                     if not value.get(i, None):
                         continue
                     try:
@@ -1727,12 +1815,27 @@ class Client(object):
                     except OrganizationNotFound:
                         pass
             if orga:
-                _, key = self.get_organization_key(orga)
+                _, _key = self.get_organization_key(orga)
+            orga_key = _key
+            k = value.get(self.api_keys["key"], None)
+            if k is not None:
+                nvalue[self.api_keys["key"]] = _key = self.decrypt(
+                    k,
+                    orga=orga,
+                    key=_key,
+                    token=token,
+                    recursion=None,
+                    dictkey=self.api_keys["key"],
+                )
             for i, v in value.items():
                 nvalue[i] = self.decrypt(
                     v,
                     orga=orga,
-                    key=key,
+                    key=(
+                        (orga_key or user_key)
+                        if i in [self.api_keys["key"]]
+                        else key or _key
+                    ),
                     token=token,
                     recursion=recursion,
                     dictkey=i,
@@ -1793,12 +1896,14 @@ class Client(object):
                 exc.response = resp
                 raise exc
             dciphers = []
-            for cipher in ciphers.get("Data", []):
+            idk = self.api_keys["id"]
+            for cipher in ciphers.get(self.api_keys["data"], []):
                 try:
                     dciphers.append(self.decrypt(cipher, token=token))
                 except bwcrypto.DecryptError:
-                    self._broken_ciphers[cipher["Id"]] = cipher
-                    L.info(f'Cant decrypt cipher {cipher["Id"]}, broken ?')
+                    dciphers.append(self.decrypt(cipher, token=token))
+                    self._broken_ciphers[cipher[idk]] = cipher
+                    L.info(f"Cant decrypt cipher {cipher[idk]}, broken ?")
             for cipher in dciphers:
                 obj = BWFactory.construct(cipher, client=self, unmarshall=True)
                 self.cache(obj, vaultier=vaultier)
@@ -2483,6 +2588,8 @@ class Client(object):
 
     def bust_cache(self):
         for k in [a for a in self._cache]:
+            self._api_keys = None
+            self._version = None
             val = self._cache[k]
             self._cache[k] = 0
             del val
@@ -3287,9 +3394,9 @@ class Client(object):
         user_id = acl["userId"]
         resp = self.r(f"/api/users/{user_id}/public-key", method="get")
         self.assert_bw_response(resp)
-        userorgkey = b64decode(resp.json()["PublicKey"])
+        userorgkey = b64decode(resp.json()[self.api_keys["publicKey"]])
         encoded_key = bwcrypto.encrypt_asym(orgkey[1], userorgkey)
-        payload = {"Key": encoded_key}
+        payload = {self.api_keys["key"]: encoded_key}
         try:
             u = f"/api/organizations/{orga.id}/users/{acl['id']}/confirm"
             resp = self.r(u, json=payload, token=token)

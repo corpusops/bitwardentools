@@ -10,7 +10,7 @@ from bitwardentools import client as bwclient
 from bitwardentools import crypto as bwcrypto
 
 ORGA_TEST_ID = os.environ.get("ORGA_TEST_ID", "bitwardentoolstest")
-DSKIP = "daccess|emails|^id|^Id|userId|Object|ContinuationToken"
+DSKIP = "daccess|emails|^(i|I)d|userId|(o|O)bject|(c|C)ontinuationToken"
 AL = bwclient.CollectionAccess
 
 
@@ -19,6 +19,7 @@ def strip_dict_data(data, skip=DSKIP):
 
 
 class TestBitwardenInteg(unittest.TestCase):
+    maxDiff = 10**10
     email = bwclient.EMAIL
     useremail = f"{bwclient.EMAIL}SIMPLE"
     password = bwclient.PASSWORD
@@ -690,12 +691,15 @@ class TestBitwardenInteg(unittest.TestCase):
         self.assertEqual(
             strip_dict_data(
                 ao1["daccess"][self.user1[0].email],
-                skip=f"{DSKIP}|(g|G)roups|TwoFactorEnabled|ResetPasswordEnrolled|ExternalId|collections",
+                skip=(
+                    f"{DSKIP}|(g|G)roups|(t|T)woFactorEnabled|(r|R)esetPasswordEnrolled|"
+                    f"(e|E)xternalId|collections|hasMasterPassword|permissions|ssoBound|"
+                    f"name|accessSecretsManager|avatarColor|usesKeyConnector"
+                ),
             ),
             {
                 "accessAll": False,
                 "email": "foo@org.comsimple1",
-                "name": "fooatorgcomsimple1",
                 "status": 0,
                 "type": 2,
             },
