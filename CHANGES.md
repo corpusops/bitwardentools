@@ -1,5 +1,9 @@
 ## CHANGES
 
+### 2.0.0
+- support for vaultwarden 1.31+
+- Improve cache handling in context on multi users (SEE DISLAIMER)
+
 ### 1.0.57
 - QA & CI/CD fixes [kiorky]
 - Fix newer vaultwarden patch [kiorky]
