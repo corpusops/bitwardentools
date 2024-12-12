@@ -2487,6 +2487,9 @@ class Client(object):
                     )
                     raise exc
                 u = f"/api/organizations/{orga.id}/users/{ouid}"
+                v, i = self.version()
+                if i and (v > API_CHANGES['1.27.0']):
+                    u += "?includeGroups=True&includeCollections=true"
             resp = self.r(u, token=token, method="get", json={})
             try:
                 self.assert_bw_response(resp)
@@ -2815,13 +2818,19 @@ class Client(object):
                 # set access on subsequent collections
                 cremove = cdata.get("remove", remove)
                 if cremove:
+                    found = True
                     try:
                         uacl["daccess"][email][cid]
                     except KeyError:
-                        L.info(
-                            f"{email} has no access to collection {collection.name}/{collection.id}, no removal"
-                        )
-                    else:
+                        try:
+                            cacl = self.get_accesses(collection)
+                            cacl["daccess"][email]
+                        except KeyError:
+                            found = False
+                            L.info(
+                                f"{email} has no access to collection {collection.name}/{collection.id}, no removal"
+                            )
+                    if found:
                         L.info(f"Removing {cid} from {email} collections")
                         todo = True
                         payload["removed"].add(cid)
