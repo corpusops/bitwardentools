@@ -18,6 +18,7 @@ from collections import OrderedDict
 from copy import deepcopy
 from subprocess import run
 from time import time
+from packaging import version as _version
 
 import requests
 from jwt import encode as jwt_encode
@@ -96,6 +97,11 @@ ORGA_PERMISSIONS = {
     "managePolicies": False,
     "manageUsers": False,
 }
+IS_BITWARDEN_RE = re.compile('[0-9][0-9][0-9][0-9][.][0-9][0-9]?[.][0-9][0-9]?', flags=re.I|re.U|re.M)
+API_CHANGES = {
+    '1.27.0': _version.parse('1.27.0'),
+}
+
 
 
 def uncapitzalize(s):
@@ -719,6 +725,8 @@ class Client(object):
         self.authentication_cb = authentication_cb
         if login:
             self.login()
+        self._is_vaultwarden = False
+        self._version = None
 
     @property
     def token(self):
@@ -1435,6 +1443,20 @@ class Client(object):
         self.cache(obj)
         return obj
 
+    def version(self, force=False):
+        # bitwarden scheme is yyyy.mm.xx
+        # vaultwarden scheme is SEMVER
+        if force or not self._version:
+            try:
+                v = self.r('/api/version', method='get').json()
+            except Exception:
+                trace = traceback.format_exc()
+                L.error(trace)
+                v = '1.0.0'
+            self._is_vaultwarden = not bool(IS_BITWARDEN_RE.search(v))
+            self._version = _version.parse(v)
+        return self._version, self._is_vaultwarden
+
     def create_orgcollection(
         self, name, organizationId=None, orga=None, externalId=None, token=None, **jsond
     ):
@@ -1442,7 +1464,11 @@ class Client(object):
         token = self.get_token(token)
         _, k = self.get_organization_key(orga, token=token)
         encoded_name = bwcrypto.encrypt(bwcrypto.CIPHERS.sym, name, k)
-        data = {"externalId": [], "groups": [], "name": encoded_name}
+        v, i = self.version()
+        if i and (v > API_CHANGES['1.27.0']):
+            data = {"externalId": "", "groups": [], "users": [], "name": encoded_name}
+        else:
+            data = {"externalId": "", "groups": [], "name": encoded_name}
         log = "Creating :"
         if orga:
             log += f" in orga: {orga.name}/{orga.id}:"
