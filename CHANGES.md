@@ -2,7 +2,7 @@
 
 ### 2.0.0
 - support for vaultwarden 1.31+
-- Improve cache handling in context on multi users (SEE DISLAIMER)
+- Improve cache handling in context on multi users (SEE DISCLAIMER)
 
 ### 1.0.57
 - QA & CI/CD fixes [kiorky]
