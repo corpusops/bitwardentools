@@ -58,7 +58,7 @@ class TestBitwardenInteg(unittest.TestCase):
         for attr, email, password in self.get_users():
             try:
                 self.client.delete_user(email)
-            except (bwclient.UserNotFoundError):
+            except bwclient.UserNotFoundError:
                 pass
 
     @classmethod
@@ -618,7 +618,7 @@ class TestBitwardenInteg(unittest.TestCase):
         self.assertEqual(
             strip_dict_data(
                 ao1["daccess"][self.user1[0].email],
-                skip=f'{DSKIP}|(g|G)roups|TwoFactorEnabled|ResetPasswordEnrolled|ExternalId|collections'
+                skip=f"{DSKIP}|(g|G)roups|TwoFactorEnabled|ResetPasswordEnrolled|ExternalId|collections",
             ),
             {
                 "accessAll": False,
