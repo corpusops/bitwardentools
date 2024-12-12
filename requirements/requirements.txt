@@ -1,3 +1,4 @@
+packaging
 setuptools
 -e .
 -e git+https://github.com/corpusops/vaultier-cli.git##egg=vaultcli
@@ -7,9 +8,3 @@ hkdf
 pycryptodome
 pyjwt[crypto]
 requests>=2.13.0
-
-## dev
-# https://github.com/ipython/ipython/issues/12740
-jedi<0.18.0
-ipython
-pdbpp
