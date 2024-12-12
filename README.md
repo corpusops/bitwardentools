@@ -9,9 +9,11 @@ The ultimate goal is certainly only to rely on python implementation against the
 - [![.github/workflows/cicd.yml](https://github.com/corpusops/bitwardentools/actions/workflows/cicd.yml/badge.svg?branch=main)](https://github.com/corpusops/bitwardentools/actions/workflows/cicd.yml)
 
 ## DISCLAIMER
-**This software will be archived soon in the next days following a new and last release, SO PLEASE USE WITH CARE AS YOU KNOW THAT WE STOPPED DEVELOPMENT AND SO ANY SUPPORT**
+**This software will be archived soon in the next days following a new and last release (2.0.0).**
 
-This library was made as a swiss-army knife, but it still a proof of concept and should not be even if it works well to be totally secure.
+**SO PLEASE USE WITH CARE AS YOU KNOW THAT WE ALREADY STOPPED DEVELOPMENT AND SO ANY SUPPORT.**
+
+This library was made as a swiss-army knife, but it still a proof of concept and as such, for obvious security reasons, should not be trusted blindly even if it already appears to work pretty well.
 Indeed, as the maintainers, we do not have neither the time, nor the human ressources, nor the funds to continue development and conformity specially on a password related software.
 
 You can still send an email to the maintainers, specially for security topics, and we may see as a best effort how we can help, but without any commitment nor obligation at all on what we can do.
@@ -20,7 +22,7 @@ bitwardentools was designed and more oriented to manage administrative tasks via
 
 We would at least ask you to be careful, or even discourage to use it for example in a multi-user context
 Specially if the users are not trusted, and the API is used on long running proccess like WEB APIS.
-Or, you'll have to take the responsability of this usage and as already said on https://github.com/corpusops/bitwardentools/blob/main/USAGE.md#security-note , you should at least really take A SPECIAL++ care in the lifecycle of your consuming application to ensure that `Client.bust_cache()` is called between each different user call if this is not desired (and/or controlled), or any other cache invalidation routine will be done to ensure no leak to be possible.
+Or, you'll have to take the responsability of this usage and as already said on https://github.com/corpusops/bitwardentools/blob/main/USAGE.md#security-note , you should at least really take A SPECIAL++ care in the lifecycle of your consuming application to ensure that `Client.bust_cache()` is called between each different user call if this is not desired (and/or controlled), or any other cache invalidation routine will be done to ensure no leak to be possible. Also, please note that bitwardentools's cache is more a local object registry that a requests cache.
 This means that misusing the library can lead to leaks where an already preloaded cache can be exploited by rogue users, so think twice to your scenarii to ensure what would one user have access with or without the cache loaded.
 
 You should also upgrade as soon as possible to version 2.0.0 which may mitigate but not totally the situation as we can't by definition control the code consuming this library and any mis-usage, specially concerning cache invalidation calls. If you used this software in adhoc scripts, so in mono user and controlled scenarii, you still are i think still safe.
