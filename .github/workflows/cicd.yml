@@ -1,10 +1,10 @@
 on:
-  workflow_dispatch:
-    inputs:
-      RUNTESTS: {description: 'Run tests', required: false}
-  push:
-  schedule: [{cron: '1 0 1,15 * *'}]
-  repository_dispatch:
+  # workflow_dispatch:
+  # inputs:
+  #   RUNTESTS: {description: 'Run tests', required: false}
+  # push:
+  # schedule: [{cron: '1 0 1,15 * *'}]
+  # repository_dispatch:
 env:
   DOCKER_BUILDKIT: "1"
   COMPOSE_DOCKER_CLI_BUILD: "1"

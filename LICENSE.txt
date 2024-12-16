@@ -1,4 +1,4 @@
-Copyright (c) 2000-2021
+Copyright (c) 2000-2024
 Mathieu Le Marec - Pasquet <kiorky@cryptelium.net>
 All rights reserved.
 
