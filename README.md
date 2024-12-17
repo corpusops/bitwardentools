@@ -1,7 +1,5 @@
 # Tools for working with vaultwarden/bitwarden (_rs) and vaultier
 
-**UNMAINTAINED/STOPPED**
-
 This package containers a python3+ client for bitwarden which uses both a native python implementation but also wraps the official npm `@bitwarden/cli`.
 
 The ultimate goal is certainly only to rely on python implementation against the vaultwarden/bitwarden_rs server implementation.
@@ -10,6 +8,12 @@ The ultimate goal is certainly only to rely on python implementation against the
 
 ## DISCLAIMER
 **This software will be archived soon in the next days following a new and last release (2.0.0).**
+
+This repository now remains online ONLY for public archiving, documentation and education purposes and we ask everyone to respect this.
+
+We may also unpublish soon (as in the following monthes) any published ressources tied to the corpusops project (pypi, dockerhub, ansible-galaxy, the repositories).
+
+So, please don't rely on it after March 15, 2025 and adapt whatever project which used this code.
 
 **SO PLEASE USE WITH CARE AS YOU KNOW THAT WE ALREADY STOPPED DEVELOPMENT AND SO ANY SUPPORT.**
 
@@ -26,6 +30,7 @@ Or, you'll have to take the responsability of this usage and as already said on 
 This means that misusing the library can lead to leaks where an already preloaded cache can be exploited by rogue users, so think twice to your scenarii to ensure what would one user have access with or without the cache loaded.
 
 You should also upgrade as soon as possible to version 2.0.0 which may mitigate but not totally the situation as we can't by definition control the code consuming this library and any mis-usage, specially concerning cache invalidation calls. If you used this software in adhoc scripts, so in mono user and controlled scenarii, you still are i think still safe.
+
 
 ## Features
 - API controllable client
