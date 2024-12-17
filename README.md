@@ -1,5 +1,6 @@
 # Tools for working with vaultwarden/bitwarden (_rs) and vaultier
 
+
 This package containers a python3+ client for bitwarden which uses both a native python implementation but also wraps the official npm `@bitwarden/cli`.
 
 The ultimate goal is certainly only to rely on python implementation against the vaultwarden/bitwarden_rs server implementation.
@@ -8,6 +9,8 @@ The ultimate goal is certainly only to rely on python implementation against the
 
 ## DISCLAIMER
 **This software will be archived soon in the next days following a new and last release (2.0.0).**
+
+As stated, the maintainers stopped development and therefore all support some time ago, and make this declaration on December 15, 2024.
 
 This repository now remains online ONLY for public archiving, documentation and education purposes and we ask everyone to respect this.
 
