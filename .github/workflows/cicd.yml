@@ -1,8 +1,8 @@
 on:
-  # workflow_dispatch:
+  workflow_dispatch:
   # inputs:
   #   RUNTESTS: {description: 'Run tests', required: false}
-  # push:
+  push:
   # schedule: [{cron: '1 0 1,15 * *'}]
   # repository_dispatch:
 env:
@@ -43,13 +43,6 @@ jobs:
       with:
         username: ${{ secrets.DOCKER_HUB_USERNAME }}
         password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
-    - name: Activate docker experimental
-      run: |-
-        sudo bash -exc "service docker stop;python -c \
-        \"d='/etc/docker/daemon.json';\
-        import json;c=json.load(open(d));c['experimental']=True;\
-        open(d, 'w').write(json.dumps(c))\"
-        systemctl restart docker"
     - name: Setup env
       if: ${{ env.RUNTESTS == '1' }}
       run: |-
