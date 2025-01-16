@@ -1,5 +1,9 @@
 ## CHANGES
 
+### 2.0.1
+- **Remember that bitwardentools development, and so support is now halted.**
+- Fix for adhoc login introduced by the new multiuser flag (major login problem reported by an user). [kiorky]
+
 ### 2.0.0
 - support for vaultwarden 1.31+
 - Improve cache handling in context on multi users (SEE DISCLAIMER)

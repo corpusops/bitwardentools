@@ -783,6 +783,7 @@ class Client(object):
         self._broken_ciphers = OrderedDict()
         self.vaultier = vaultier
         self.server = server
+        self.multiuser = multiuser
         if not private_key:
             private_key = None
         self.private_key = private_key
@@ -802,7 +803,6 @@ class Client(object):
             self.login()
         self._is_vaultwarden = False
         self._version = None
-        self.multiuser = multiuser
         self._api_keys = None
 
     @property
