@@ -4,5 +4,5 @@ services:
     build:
       context: "."
       args:
-        PY_VER: 3.8
+        PY_VER: "3.10"
         REQUIREMENTS: requirements/requirements.txt requirements/requirements-dev.txt
