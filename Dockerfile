@@ -1,12 +1,12 @@
 # syntax=docker/dockerfile:1.3
-FROM corpusops/ubuntu-bare:20.04
+FROM corpusops/ubuntu-bare:22.04
 WORKDIR /tmp/install
 ARG DEV_DEPENDENCIES_PATTERN='^#\s*dev dependencies' \
     PY_VER=3.8 \
     USER_NAME=app USER_UID=1000 USER_GROUP= USER_GID= \
     USER_HOME=/w
 ARG PIP_SRC=$USER_HOME/lib
-ENV USER_NAME=$USER_NAME USER_GROUP=${USER_GROUP:-$USER_NAME} USER_UID=$USER_UID USER_GID=${USER_GID:-${USER_UID}} USER_HOME=$USER_HOME PY_VER=${PY_VER:-} PIP_SRC=$PIP_SRC
+ENV USER_NAME=$USER_NAME USER_GROUP=${USER_GROUP:-$USER_NAME} USER_UID=$USER_UID USER_GID=${USER_GID:-${USER_UID}} USER_HOME=$USER_HOME PY_VER=${PY_VER} PIP_SRC=$PIP_SRC
 
 # system dependendencies (pkgs, users, etc)
 ADD apt*.txt ./
@@ -16,6 +16,7 @@ RUN set -e \
     useradd -s /bin/bash -d $USER_HOME -m -u $USER_UID -g $USER_UID $USER_NAME;fi \
   && sed -i -re "s/(python-?)[0-9]\.[0-9]+/\1$PY_VER/g" apt.txt \
   && apt update && apt install -y $(egrep -v "^#" apt.txt) \
+  && git config --global --add safe.directory '*' \
   && mkdir -pv "$PIP_SRC" && chown $USER_NAME "$PIP_SRC" \
   && printf "$USER_NAME ALL=(ALL) NOPASSWD:ALL\n">/etc/sudoers.d/app \
   && : end
@@ -24,7 +25,7 @@ RUN set -e \
 WORKDIR $USER_HOME
 # See https://github.com/pypa/setuptools/issues/3301
 # ARG PIP_REQ=>=22 SETUPTOOLS_REQ=<60 \
-ARG PIP_REQ=>=22 SETUPTOOLS_REQ>=60 \
+ARG PIP_REQ=>=22 SETUPTOOLS_REQ=>=60 \
     REQUIREMENTS=requirements/requirements.txt requirements/requirements-dev.txt
 ENV REQUIREMENTS=$REQUIREMENTS PIP_REQ=$PIP_REQ SETUPTOOLS_REQ=$SETUPTOOLS_REQ
 ADD --chown=app:app lib/ lib/

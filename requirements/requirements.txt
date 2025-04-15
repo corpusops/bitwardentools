@@ -1,5 +1,5 @@
 -e .
--e git+https://github.com/corpusops/vaultier-cli.git#egg=vaultcli
+-e git+https://github.com/corpusops/vaultier-cli.git##egg=vaultcli
 click
 
 hkdf
