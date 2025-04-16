@@ -1,0 +1,10 @@
+[http.routers.r]
+entryPoints = ["web", "websecure"]
+service = "s@file"
+rule = "PathPrefix(`/`)"
+tls=true
+
+[http.services.s.loadBalancer]
+passHostHeader = true
+[[http.services.s.loadBalancer.servers]]
+url = "http://bitwarden/"
