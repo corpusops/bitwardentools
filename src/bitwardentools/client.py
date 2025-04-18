@@ -2703,6 +2703,9 @@ class Client(object):
                 dcollections, readonly=readonly, hidepasswords=hidepasswords
             )["payloads"]
         u = f"/api/organizations/{orga.id}/users/invite"
+        v, i = self.version()
+        if i and (v > API_CHANGES['1.27.0']):
+            params.setdefault('groups', [])
         response = self.r(u, json=params, token=token)
         self.assert_bw_response(response)
         return response
