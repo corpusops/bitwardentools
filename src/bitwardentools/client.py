@@ -1433,6 +1433,9 @@ class Client(object):
         if not bwcrypto.SYM_ENCRYPTED_STRING_RE.match(data["name"]):
             _, k = self.get_organization_key(obj._orga, token=token)
             data["name"] = bwcrypto.encrypt(bwcrypto.CIPHERS.sym, data["name"], k)
+        v, i = self.version()
+        if i and (v > API_CHANGES['1.27.0']):
+            data.setdefault('users', [])
         obj = self._upload_object(
             f"/api/organizations/{obj._orga.id}/collections/{obj.id}",
             data,
