@@ -32,7 +32,9 @@ version = "1.0.56"
 src_dir = "src"
 req = re.compile("^(?!(-e|#))", flags=re.I | re.M)
 install_requires = [
-    a.strip() for a in open("requirements/requirements.txt").read().splitlines() if req.search(a) and a.strip()
+    a.strip()
+    for a in open("requirements/requirements.txt").read().splitlines()
+    if req.search(a) and a.strip()
 ]
 extra_requires = {}
 candidates = {}
@@ -51,7 +53,7 @@ setup(
     author="kiorky",
     author_email="kiorky@cryptelium.net",
     url="https://github.com/corpusops/bitwardentools",
-    long_description_content_type='text/markdown',
+    long_description_content_type="text/markdown",
     license="GPL",
     packages=find_packages(src_dir),
     package_dir={"": src_dir},
