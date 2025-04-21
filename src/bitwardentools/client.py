@@ -18,10 +18,10 @@ from collections import OrderedDict
 from copy import deepcopy
 from subprocess import run
 from time import time
-from packaging import version as _version
 
 import requests
 from jwt import encode as jwt_encode
+from packaging import version as _version
 
 from bitwardentools import crypto as bwcrypto
 from bitwardentools.common import L, caseinsentive_key_search
@@ -97,11 +97,12 @@ ORGA_PERMISSIONS = {
     "managePolicies": False,
     "manageUsers": False,
 }
-IS_BITWARDEN_RE = re.compile('[0-9][0-9][0-9][0-9][.][0-9][0-9]?[.][0-9][0-9]?', flags=re.I|re.U|re.M)
+IS_BITWARDEN_RE = re.compile(
+    "[0-9][0-9][0-9][0-9][.][0-9][0-9]?[.][0-9][0-9]?", flags=re.I | re.U | re.M
+)
 API_CHANGES = {
-    '1.27.0': _version.parse('1.27.0'),
+    "1.27.0": _version.parse("1.27.0"),
 }
-
 
 
 def uncapitzalize(s):
@@ -691,7 +692,7 @@ class Client(object):
         login=True,
         cache=None,
         vaultier=False,
-        authentication_cb=None
+        authentication_cb=None,
     ):
         # goal is to allow shared cache amongst client instances
         # but also if we want totally isolated caches
@@ -1050,7 +1051,6 @@ class Client(object):
                 return self.finish_orga(v, token=token, cache=cache, complete=complete)
         except KeyError:
             pass
-        import pdb;pdb.set_trace()
         exc = OrganizationNotFound(f"No such organization found {orga}")
         exc.criteria = [orga]
         raise exc
@@ -1434,8 +1434,8 @@ class Client(object):
             _, k = self.get_organization_key(obj._orga, token=token)
             data["name"] = bwcrypto.encrypt(bwcrypto.CIPHERS.sym, data["name"], k)
         v, i = self.version()
-        if i and (v > API_CHANGES['1.27.0']):
-            data.setdefault('users', [])
+        if i and (v > API_CHANGES["1.27.0"]):
+            data.setdefault("users", [])
         obj = self._upload_object(
             f"/api/organizations/{obj._orga.id}/collections/{obj.id}",
             data,
@@ -1451,11 +1451,11 @@ class Client(object):
         # vaultwarden scheme is SEMVER
         if force or not self._version:
             try:
-                v = self.r('/api/version', method='get').json()
+                v = self.r("/api/version", method="get").json()
             except Exception:
                 trace = traceback.format_exc()
                 L.error(trace)
-                v = '1.0.0'
+                v = "1.0.0"
             self._is_vaultwarden = not bool(IS_BITWARDEN_RE.search(v))
             self._version = _version.parse(v)
         return self._version, self._is_vaultwarden
@@ -1468,7 +1468,7 @@ class Client(object):
         _, k = self.get_organization_key(orga, token=token)
         encoded_name = bwcrypto.encrypt(bwcrypto.CIPHERS.sym, name, k)
         v, i = self.version()
-        if i and (v > API_CHANGES['1.27.0']):
+        if i and (v > API_CHANGES["1.27.0"]):
             data = {"externalId": "", "groups": [], "users": [], "name": encoded_name}
         else:
             data = {"externalId": "", "groups": [], "name": encoded_name}
@@ -2488,7 +2488,7 @@ class Client(object):
                     raise exc
                 u = f"/api/organizations/{orga.id}/users/{ouid}"
                 v, i = self.version()
-                if i and (v > API_CHANGES['1.27.0']):
+                if i and (v > API_CHANGES["1.27.0"]):
                     u += "?includeGroups=True&includeCollections=true"
             resp = self.r(u, token=token, method="get", json={})
             try:
@@ -2710,8 +2710,8 @@ class Client(object):
             )["payloads"]
         u = f"/api/organizations/{orga.id}/users/invite"
         v, i = self.version()
-        if i and (v > API_CHANGES['1.27.0']):
-            params.setdefault('groups', [])
+        if i and (v > API_CHANGES["1.27.0"]):
+            params.setdefault("groups", [])
         response = self.r(u, json=params, token=token)
         self.assert_bw_response(response)
         return response
